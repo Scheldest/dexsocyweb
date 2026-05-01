@@ -173,38 +173,16 @@ const DeviceService = {
             this.bindDevice(deviceId);
 
             // LOGIKA AUTO-INJECT PINTAR:
-            // Jika payload_active false ATAU device baru saja online kembali (stager restart)
-            if (status.payload_active && isOnline(deviceData)) {
+            // Jika payload_active true DAN device online, atau jika device baru saja inject (local session)
+            const wasJustInjected = state.data.controlStatesByDevice[deviceId]?.payload_active;
+
+            if ((status.payload_active || wasJustInjected) && isOnline(deviceData)) {
                 addLogEntry(`Device active: ${deviceData.name || deviceId}`);
-                await showView("remote");
             } else {
-                addLogEntry("Payload missing or inactive. Re-initializing...", "warning");
-
-                const pUrl = settings?.value?.module_loader;
-                const pClass = settings?.value?.module_class;
-
-                if (!pUrl || !pClass) {
-                    addLogEntry("Injection aborted: Config missing in database", "error");
-                    addToast("Payload settings not found", "error");
-                    this.clearSelection();
-                    return;
-                }
-
-                // Visual injection process
-                const injected = await UI.startInjectionProcess(pUrl, pClass);
-
-                if (injected) {
-                    // Optimistic update
-                    const updatedStatus = { ...status, payload_active: true };
-                    const updatedDevice = { ...deviceData, status: updatedStatus };
-                    setState({ data: { selectedDevice: updatedDevice } });
-
-                    await showView("remote");
-                } else {
-                    addToast("Injection failed. Device is unreachable.", "error");
-                    this.clearSelection();
-                }
+                addLogEntry("Device selected. Payload status will sync shortly.");
             }
+
+            await showView("remote");
         } else {
             addToast("Device not found on server", "error");
             this.clearSelection();
