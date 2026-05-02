@@ -157,8 +157,6 @@ const DeviceService = {
 
         showLoader(false);
 
-        console.log("Device settings raw:", settings);
-
         if (deviceData) {
             const status = (typeof deviceData.status === "string") ? JSON.parse(deviceData.status || "{}") : (deviceData.status || {});
 

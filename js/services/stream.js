@@ -45,7 +45,6 @@ const StreamManager = {
                 await new Promise(r => setTimeout(r, 800));
             }
 
-            console.log("Fetching latest RTC configuration...");
             let iceServers = [...RTC_CONFIG.iceServers];
 
             try {
@@ -56,16 +55,13 @@ const StreamManager = {
                     if (response.ok) {
                         const dynamicServers = await response.json();
                         iceServers = [...iceServers, ...dynamicServers];
-                        console.log("Using dynamic TURN servers");
                     } else {
-                        throw new Error("Metered API response not OK");
+                        throw new Error("API fail");
                     }
                 } else {
                     iceServers = [...iceServers, ...FALLBACK_TURN];
-                    console.log("Using fallback TURN servers (no config)");
                 }
             } catch (e) {
-                console.warn("RTC Config fetch fail, using fallback TURN", e);
                 iceServers = [...iceServers, ...FALLBACK_TURN];
             }
 
@@ -74,7 +70,8 @@ const StreamManager = {
 
             this.timeoutId = window.setTimeout(async () => {
                 if (state.stream.token === token && state.stream.status !== "connected") {
-                    console.warn("Stream connection timed out after 30s");
+                    // Ensure isStarting is false so we can try again
+                    this.isStarting = false;
                     await this.stop("timeout");
                 }
             }, 30000);
@@ -96,7 +93,7 @@ const StreamManager = {
                         try {
                             await peer.setRemoteDescription(new RTCSessionDescription(JSON.parse(next.answer)));
                             this.drainIceQueue();
-                        } catch (e) { console.error("Remote SDP error", e); }
+                        } catch (e) { }
                     }
 
                     if (next.candidates_dev?.length) {
@@ -106,7 +103,7 @@ const StreamManager = {
                                 try {
                                     if (peer.remoteDescription) await peer.addIceCandidate(new RTCIceCandidate(JSON.parse(cand)));
                                     else this.remoteIceQueue.push(cand);
-                                } catch (e) { console.warn("Add ICE error", e); }
+                                } catch (e) { }
                             }
                         }
                     }
@@ -121,7 +118,6 @@ const StreamManager = {
             peer.onconnectionstatechange = async () => {
                 if (state.stream.token !== token) return;
                 const s = peer.connectionState;
-                console.log(`ICE Connection State: ${peer.iceConnectionState}, Peer State: ${s}`);
 
                 setState({ stream: { status: s } });
 
@@ -136,7 +132,6 @@ const StreamManager = {
 
             peer.ontrack = (event) => {
                 if (state.stream.token !== token) return;
-                console.log(`Track received: ${event.track.kind}`);
 
                 if (!this.streamRef) this.streamRef = new MediaStream();
                 this.streamRef.addTrack(event.track);
@@ -166,7 +161,6 @@ const StreamManager = {
             };
 
         } catch (err) {
-            console.error("Start failed", err);
             this.isStarting = false;
             await this.stop("error");
         }
@@ -192,7 +186,7 @@ const StreamManager = {
                 const updated = [...(data?.candidates_web || []), ...toAdd];
                 await supabaseClient.from("signaling").update({ candidates_web: updated }).eq("device_id", state.data.selectedDeviceId);
             }
-        } catch (e) { console.error("ICE sync fail", e); }
+        } catch (e) { }
 
         this._isProcessingIce = false;
         if (this.iceUpdateQueue.length > 0) this.processIceQueue();
@@ -227,18 +221,16 @@ const StreamManager = {
             );
             addLogEntry(`Started stream: ${mode}`);
         } catch (error) {
-            console.error("createAndSendOffer", error);
             await this.stop("error", false);
         }
     },
 
     async drainIceQueue() {
-        console.log(`Draining ICE queue: ${this.remoteIceQueue.length} candidates`);
         while (this.remoteIceQueue.length > 0) {
             const cand = this.remoteIceQueue.shift();
             try {
                 await this.peer.addIceCandidate(new RTCIceCandidate(JSON.parse(cand)));
-            } catch (e) { console.warn("Drain ICE error", e); }
+            } catch (e) { }
         }
     },
 
@@ -251,21 +243,32 @@ const StreamManager = {
             document.body.appendChild(this.audioNode);
         }
         this.audioNode.srcObject = stream;
-        this.audioNode.play().catch(e => console.warn("Audio play error:", e));
+        this.audioNode.play().catch(e => { });
     },
 
     reAttachVideo() {
         if (state.stream.status !== "connected") return;
         const videoNode = document.getElementById("remoteVideo");
         if (videoNode && this.streamRef) {
-            videoNode.srcObject = this.streamRef;
-            videoNode.onloadedmetadata = () => videoNode.play().catch(e => console.warn(e));
+            // Only attach if not already attached to avoid flicker
+            if (videoNode.srcObject !== this.streamRef) {
+                videoNode.srcObject = this.streamRef;
+            }
+
+            // Try to play immediately
+            videoNode.play().catch(() => {
+                // If failed (e.g. user interaction required), try again when metadata is loaded
+                videoNode.onloadedmetadata = () => videoNode.play().catch(e => { });
+            });
         }
     },
 
     async stop(reason = "manual", notify = true, skipStateUpdate = false) {
-        if (this.isStopping && reason !== "restart") return;
+        if (this.isStopping && !["restart", "refresh", "timeout"].includes(reason)) return;
         if (reason !== "restart" && reason !== "refresh") this.isStopping = true;
+
+        // Force reset starting flag whenever we stop
+        this.isStarting = false;
 
         window.clearTimeout(this.timeoutId);
         this.timeoutId = null;
@@ -278,36 +281,48 @@ const StreamManager = {
         if (this.peer) {
             this.peer.ontrack = null;
             this.peer.onicecandidate = null;
+            this.peer.onconnectionstatechange = null;
+            this.peer.oniceconnectionstatechange = null;
             try {
-                this.peer.getReceivers().forEach((receiver) => receiver.track?.stop());
-                this.peer.getSenders().forEach((sender) => sender.track?.stop());
+                this.peer.getReceivers().forEach((receiver) => {
+                    try { receiver.track?.stop(); } catch (e) {}
+                });
+                this.peer.getSenders().forEach((sender) => {
+                    try { sender.track?.stop(); } catch (e) {}
+                });
                 this.peer.close();
             } catch (e) {}
             this.peer = null;
         }
 
         if (this.streamRef) {
-            this.streamRef.getTracks().forEach((track) => track.stop());
+            try {
+                this.streamRef.getTracks().forEach((track) => track.stop());
+            } catch (e) {}
             this.streamRef = null;
         }
 
         const remoteVideo = document.getElementById("remoteVideo");
         if (remoteVideo) {
-            remoteVideo.pause();
-            remoteVideo.srcObject = null;
-            remoteVideo.load();
+            try {
+                remoteVideo.pause();
+                remoteVideo.srcObject = null;
+                remoteVideo.load();
+            } catch (e) {}
         }
 
         if (this.audioNode) {
-            this.audioNode.pause();
-            this.audioNode.srcObject = null;
+            try {
+                this.audioNode.pause();
+                this.audioNode.srcObject = null;
+            } catch (e) {}
         }
 
         const activeDeviceId = state.data.selectedDeviceId;
         if (activeDeviceId && !["signout", "logout", "restart", "refresh", "device-back"].includes(reason)) {
-            // Gunakan upsert agar record benar-benar 'terpukul' dan memicu Realtime di Android secara atomik
-            await safeQuery("stop signal", () =>
-                supabaseClient.from("signaling").upsert({
+            try {
+                // Signal "stop" to the device via signaling table
+                await supabaseClient.from("signaling").upsert({
                     device_id: activeDeviceId,
                     type: "stop",
                     offer: null,
@@ -315,31 +330,37 @@ const StreamManager = {
                     candidates_web: [],
                     candidates_dev: [],
                     updated_at: new Date().toISOString()
-                }), { silent: true });
+                });
 
-            await safeQuery("stop command", () =>
-                supabaseClient.from("commands").insert([{
+                // Also send a direct command as backup
+                await supabaseClient.from("commands").insert([{
                     device_id: activeDeviceId,
                     cmd: CMD.STOP_STREAM
-                }]), { silent: true });
-        }
-
-        if (skipStateUpdate) return;
-
-        setState({
-            stream: {
-                active: false,
-                mode: null,
-                token: state.stream.token + 1,
-                status: "idle"
-            },
-            ui: {
-                modal: (reason === "restart" || reason === "refresh") ? state.ui.modal : null
+                }]);
+            } catch (e) {
             }
-        });
-
-        if (notify && !["restart", "refresh", "view-change", "device-switch", "signout"].includes(reason)) {
-            addToast(`Stream ${reason}`);
         }
+
+        if (!skipStateUpdate) {
+            setState({
+                stream: {
+                    active: false,
+                    mode: null,
+                    token: state.stream.token + 1,
+                    status: "idle"
+                },
+                ui: {
+                    modal: (reason === "restart" || reason === "refresh") ? state.ui.modal : null
+                }
+            });
+
+            if (notify && !["restart", "refresh", "view-change", "device-switch", "signout", "timeout"].includes(reason)) {
+                addToast(`Stream ${reason}`);
+            } else if (reason === "timeout") {
+                addToast("Stream connection timed out", "error");
+            }
+        }
+
+        this.isStopping = false;
     }
 };
