@@ -254,6 +254,11 @@ const DeviceService = {
         const type = row?.data_type;
         const content = row?.content;
 
+        if (type === "injection_log") {
+            UI.updateInjectionLog(content);
+            return;
+        }
+
         if (type === "image" || type === "camera" || type === "screenshot") {
             addLogEntry("Media received from device");
             // Check if content is a raw base64 and ensure it has the correct prefix

