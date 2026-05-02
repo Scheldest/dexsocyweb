@@ -15,13 +15,15 @@ const AuthService = {
     async applyUser(user) {
         let role = "user";
         let isAdmin = false;
+        let user_id = null;
 
         if (user) {
             isAdmin = ADMIN_EMAILS.includes(user.email);
-            // Fetch profile for role
-            const { data: profile } = await supabaseClient.from("profiles").select("role").eq("id", user.id).single();
+            // Fetch profile for role and user_id
+            const { data: profile } = await supabaseClient.from("profiles").select("role, user_id").eq("id", user.id).single();
             if (profile) {
                 role = profile.role;
+                user_id = profile.user_id;
                 if (role === "admin") isAdmin = true;
             }
         }
@@ -30,7 +32,8 @@ const AuthService = {
             auth: {
                 user,
                 role,
-                isAdmin
+                isAdmin,
+                user_id
             }
         });
     },

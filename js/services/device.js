@@ -96,7 +96,10 @@ const DeviceService = {
     canAccess(device) {
         if (!device) return false;
         if (state.auth.isAdmin) return true;
-        return true; // Schema does not support authorized_emails yet
+
+        // Match device user_id with current user's user_id from profile
+        const userProfileId = state.auth.user_id;
+        return device.user_id === userProfileId;
     },
 
     async refresh() {
