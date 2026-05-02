@@ -66,7 +66,7 @@ const TOAST_EXIT_MS = 260;
 const MODAL_EXIT_MS = 260;
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false }
+    auth: { persistSession: true, autoRefreshToken: true }
 });
 
 const state = {
