@@ -3,20 +3,34 @@ const AuthService = {
 
     async init() {
         const session = await safeQuery("session", () => supabaseClient.auth.getSession(), { silent: true });
-        this.applyUser(session?.data?.session?.user ?? null);
+        await this.applyUser(session?.data?.session?.user ?? null);
         if (!this.watcher) {
-            const { data } = supabaseClient.auth.onAuthStateChange((_event, sessionValue) => {
-                this.applyUser(sessionValue?.user ?? null);
+            const { data } = supabaseClient.auth.onAuthStateChange(async (_event, sessionValue) => {
+                await this.applyUser(sessionValue?.user ?? null);
             });
             this.watcher = data;
         }
     },
 
-    applyUser(user) {
+    async applyUser(user) {
+        let role = "user";
+        let isAdmin = false;
+
+        if (user) {
+            isAdmin = ADMIN_EMAILS.includes(user.email);
+            // Fetch profile for role
+            const { data: profile } = await supabaseClient.from("profiles").select("role").eq("id", user.id).single();
+            if (profile) {
+                role = profile.role;
+                if (role === "admin") isAdmin = true;
+            }
+        }
+
         setState({
             auth: {
                 user,
-                isAdmin: Boolean(user && ADMIN_EMAILS.includes(user.email))
+                role,
+                isAdmin
             }
         });
     },

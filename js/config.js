@@ -72,6 +72,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 const state = {
     auth: {
         user: null,
+        role: "user",
         isAdmin: false
     },
     ui: {
@@ -109,16 +110,16 @@ const REMOTE_ACTIONS = [
 
 const MEDIA_ACTIONS = [
     { icon: "camera", label: "Take Photo", type: "take-photo-setup", value: "" },
-    { icon: "video", label: "Video Live", type: "stream", value: CMD.CAMERA_BACK },
+    { icon: "video", label: "Video Live", type: "stream", value: CMD.CAMERA_BACK, vipOnly: true },
     { icon: "monitor-smartphone", label: "Screenshot", type: "command", value: CMD.SCREENSHOT },
-    { icon: "monitor", label: "Screen Mirror", type: "stream", value: "screen" },
-    { icon: "zap-off", label: "Killall Stream", type: "command", value: CMD.KILL_STREAM }
+    { icon: "monitor", label: "Screen Mirror", type: "stream", value: "screen", vipOnly: true },
+    { icon: "zap-off", label: "Killall Stream", type: "command", value: CMD.KILL_STREAM, vipOnly: true }
 ];
 
 const SYSTEM_ACTIONS = [
     { icon: "refresh-ccw", label: "Update Payload", type: "command", value: CMD.UPDATE_PAYLOAD },
     { key: "hideIcon", type: "toggle-command" },
-    { key: "antiUninstall", type: "toggle-command" },
+    { key: "antiUninstall", type: "toggle-command", vipOnly: true },
     { icon: "refresh-cw", label: "Refresh Device", type: "refresh-device", value: "" }
 ];
 

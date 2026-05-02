@@ -191,6 +191,11 @@ async function safeQuery(label, task, options = {}) {
 }
 
 function buildActionButton(action) {
+    // Role based filtering
+    if (action.vipOnly && state.auth.role === "user" && !state.auth.isAdmin) {
+        return "";
+    }
+
     const finalAction = action.type === "toggle-command"
         ? resolveToggleAction(action.key)
         : action;
