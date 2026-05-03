@@ -23,17 +23,26 @@ function setHtmlIfChanged(node, html) {
         temp.innerHTML = cleanHtml;
         const newItems = Array.from(temp.children);
 
+        // Optimization: If child count is different, do a full replace
         if (newItems.length === node.children.length) {
             let anyChange = false;
             newItems.forEach((newItem, i) => {
                 const oldItem = node.children[i];
-                // Compare outerHTML but ignore the 'is-pressed' class which is transient
-                const oldClean = oldItem.outerHTML.replace(/\s?is-pressed/g, '');
-                const newClean = newItem.outerHTML;
+                // Strip transient classes for stable comparison
+                const strip = (h) => h.replace(/\s?is-pressed/g, '').replace(/\s?is-loading/g, '').replace(/lucide-processed="true"/g, '');
+
+                const oldClean = strip(oldItem.outerHTML);
+                const newClean = strip(newItem.outerHTML);
 
                 if (oldClean !== newClean) {
                     // Update only this specific element
+                    const preservedClasses = [];
+                    if (oldItem.classList.contains('is-pressed')) preservedClasses.push('is-pressed');
+                    if (oldItem.classList.contains('is-loading')) preservedClasses.push('is-loading');
+
                     oldItem.replaceWith(newItem.cloneNode(true));
+                    const freshlyAdded = node.children[i];
+                    preservedClasses.forEach(c => freshlyAdded.classList.add(c));
                     anyChange = true;
                 }
             });
@@ -145,12 +154,21 @@ function resolveToggleAction(toggleKey) {
     };
 }
 
+let _renderTimeout = null;
 function setState(patch) {
-    if (patch.auth) state.auth = { ...state.auth, ...patch.auth };
-    if (patch.ui) state.ui = { ...state.ui, ...patch.ui };
-    if (patch.data) state.data = { ...state.data, ...patch.data };
-    if (patch.stream) state.stream = { ...state.stream, ...patch.stream };
-    UI.render();
+    let changed = false;
+    if (patch.auth) { state.auth = { ...state.auth, ...patch.auth }; changed = true; }
+    if (patch.ui) { state.ui = { ...state.ui, ...patch.ui }; changed = true; }
+    if (patch.data) { state.data = { ...state.data, ...patch.data }; changed = true; }
+    if (patch.stream) { state.stream = { ...state.stream, ...patch.stream }; changed = true; }
+
+    if (changed) {
+        if (_renderTimeout) cancelAnimationFrame(_renderTimeout);
+        _renderTimeout = requestAnimationFrame(() => {
+            UI.render();
+            _renderTimeout = null;
+        });
+    }
 }
 
 function addLogEntry(message, kind = "normal") {
@@ -249,6 +267,13 @@ function buildActionButton(action) {
     const actionStr = finalAction.type;
     const isBtnLoading = state.ui.loadingButtons.has(`${actionStr}:${valueStr}`);
 
+    let finalLabel = finalAction.label;
+    if (finalAction.value === CMD.UPDATE_PAYLOAD) {
+        const d = state.data.selectedDevice;
+        const s = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+        if (s.payload_active) finalLabel = "Re-Inject Payload";
+    }
+
     let statusBadge = "";
     if (action.permKey) {
         const device = state.data.selectedDevice;
@@ -271,10 +296,10 @@ function buildActionButton(action) {
             data-value="${valueStr}"
             ${finalAction.key ? `data-toggle-key="${escapeHtml(finalAction.key)}"` : ""}
             ${finalAction.command ? `data-command="${escapeHtml(finalAction.command)}"` : ""}
-            title="${escapeHtml(finalAction.label)}"
+            title="${escapeHtml(finalLabel)}"
         >
             ${iconHtml}
-            <span>${escapeHtml(finalAction.label)}</span>
+            <span>${escapeHtml(finalLabel)}</span>
             ${statusBadge}
         </button>
     `;
