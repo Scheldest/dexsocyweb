@@ -865,7 +865,10 @@ input:focus, textarea:focus {
 .is-loading {
     position: relative;
     pointer-events: none;
-    color: transparent !important;
+}
+
+.is-loading > * {
+    opacity: 0.15; /* Dim content instead of making it transparent */
 }
 
 .is-loading::after {
@@ -875,10 +878,16 @@ input:focus, textarea:focus {
     height: 20px;
     top: calc(50% - 10px);
     left: calc(50% - 10px);
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: currentColor;
+    border: 2.5px solid rgba(0,0,0,0.1);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
+    z-index: 5;
+}
+
+:root.dark .is-loading::after {
+    border-color: rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
 }
 
 .secondary-btn.is-loading::after {

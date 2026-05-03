@@ -87,13 +87,22 @@ const UI = {
                     const oldValue = isToggleActive(key);
                     const newValue = !oldValue;
 
-                    // Instant Visual Flip
+                    // Manual DOM Update: Instant, no flicker, preserves 'is-pressed' animation
+                    btn.classList.toggle("is-toggled", newValue);
+                    const iconWrap = btn.querySelector('.lucide-icon') || btn.querySelector('svg');
+                    if (iconWrap) {
+                        const toggle = getToggleConfig(key);
+                        const nextIcon = newValue ? toggle.on.icon : toggle.off.icon;
+                        iconWrap.outerHTML = renderIcon(nextIcon, "lucide-icon");
+                    }
+
+                    // Small delay to allow the haptic animation (scale down) to be visible
+                    await new Promise(r => setTimeout(r, 120));
+
+                    // Update actual state in background
                     DeviceService.setToggleState(key, newValue);
 
-                    // Small delay for haptic feedback feel
-                    await new Promise(r => setTimeout(r, 80));
-
-                    // Send network request in background
+                    // Send network request
                     const result = await DeviceService.send(cmd, { showSuccess: true });
 
                     // Revert only if it's a real failure (not debounce)
@@ -496,15 +505,14 @@ const UI = {
             this.renderTheme();
             this.syncScrollLock(isModal);
 
-            // Universal Icon Fix: Scan only if something marked the icons as dirty
-            if (window.lucide) {
+            // Universal Icon Fix: Only process icons that are actually tag <i>
+            if (window.lucide && dom.iconsDirty) {
                 const iconsToProcess = document.querySelectorAll('i[data-lucide]:not([data-lucide-processed])');
-                if (iconsToProcess.length > 0 || dom.iconsDirty) {
+                if (iconsToProcess.length > 0) {
                     lucide.createIcons();
-                    // Mark processed to avoid redundant cycles
                     iconsToProcess.forEach(i => i.setAttribute('data-lucide-processed', 'true'));
-                    dom.iconsDirty = false;
                 }
+                dom.iconsDirty = false;
             }
         } catch (err) {
             console.error("Critical Render Error", err);
@@ -795,10 +803,10 @@ const UI = {
                 head = `<div class="modal-title">Capture Photo</div>`;
                 body = `<div class="action-grid">
                             <button class="action-btn" data-action="command" data-value="${CMD.CAMERA_FRONT}" style="aspect-ratio:auto; height:120px;">
-                                ${renderIcon("camera", "w-28 h-28")}<span>Front Cam</span>
+                                ${renderIcon("camera", "", "width:28px; height:28px")}<span>Front Cam</span>
                             </button>
                             <button class="action-btn" data-action="command" data-value="${CMD.CAMERA_BACK}" style="aspect-ratio:auto; height:120px;">
-                                ${renderIcon("camera", "w-28 h-28")}<span>Rear Cam</span>
+                                ${renderIcon("camera", "", "width:28px; height:28px")}<span>Rear Cam</span>
                             </button>
                         </div>`;
                 footer = `<button class="secondary-btn" data-action="close-modal">Cancel</button>`;

@@ -16,9 +16,32 @@ function setHtmlIfChanged(node, html) {
     const cleanHtml = html.trim();
     if (node.__renderedHtml === cleanHtml) return false;
 
-    // Preserve converted Lucide icons if the source <i> is the same
-    // We do this by checking if only some classes changed and keeping the SVG if possible
-    // But for simplicity and reliability, we'll just use the direct SVG injection approach in buildActionButton
+    // Surgical Update for grids to prevent flickering of unchanged items
+    const isGrid = node.classList.contains('action-grid') || node.classList.contains('device-grid') || node.id?.includes('Grid');
+    if (isGrid && node.children.length > 0) {
+        const temp = document.createElement('div');
+        temp.innerHTML = cleanHtml;
+        const newItems = Array.from(temp.children);
+
+        if (newItems.length === node.children.length) {
+            let anyChange = false;
+            newItems.forEach((newItem, i) => {
+                const oldItem = node.children[i];
+                // Compare outerHTML but ignore the 'is-pressed' class which is transient
+                const oldClean = oldItem.outerHTML.replace(/\s?is-pressed/g, '');
+                const newClean = newItem.outerHTML;
+
+                if (oldClean !== newClean) {
+                    // Update only this specific element
+                    oldItem.replaceWith(newItem.cloneNode(true));
+                    anyChange = true;
+                }
+            });
+            node.__renderedHtml = cleanHtml;
+            if (anyChange && cleanHtml.includes("data-lucide")) dom.iconsDirty = true;
+            return anyChange;
+        }
+    }
 
     if (cleanHtml.includes("data-lucide")) {
         dom.iconsDirty = true;
@@ -196,19 +219,19 @@ async function safeQuery(label, task, options = {}) {
     }
 }
 
-function renderIcon(name, className = "") {
+function renderIcon(name, className = "", style = "") {
     try {
         if (window.lucide && lucide.icons) {
-            // Convert kebab-case to PascalCase for Lucide icons object
             const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
             if (lucide.icons[iconName]) {
-                return lucide.icons[iconName].toSvg({ class: className });
+                return lucide.icons[iconName].toSvg({
+                    class: `lucide-icon ${className}`,
+                    style: style
+                });
             }
         }
-    } catch (e) {
-        console.warn("Icon render error", name, e);
-    }
-    return `<i data-lucide="${name}" class="${className}"></i>`;
+    } catch (e) {}
+    return `<i data-lucide="${name}" class="${className}" style="${style}"></i>`;
 }
 
 function buildActionButton(action) {
