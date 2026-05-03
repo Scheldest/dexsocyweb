@@ -178,14 +178,19 @@ function closeModal() {
 }
 
 async function safeQuery(label, task, options = {}) {
+    const timeoutMs = options.timeout || 12000;
     try {
-        const result = await task();
+        const result = await Promise.race([
+            task(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Request timeout")), timeoutMs))
+        ]);
         if (result?.error) throw result.error;
         return result;
     } catch (error) {
         console.error(label, error);
-        if (!options.silent) addToast(error.message || `${label} failed`, "error");
-        return null;
+        const msg = error.message || `${label} failed`;
+        if (!options.silent) addToast(msg, "error");
+        return { success: false, error: msg };
     }
 }
 
@@ -201,6 +206,11 @@ function buildActionButton(action) {
     if (!finalAction) return "";
 
     const active = action.type === "toggle-command" ? isToggleActive(action.key) : false;
+    const valueStr = escapeHtml(finalAction.value || "");
+    const actionStr = finalAction.type;
+
+    // Check if this specific button is in loading state
+    const isBtnLoading = state.ui.loadingButtons.has(`${actionStr}:${valueStr}`);
 
     // Check permission status
     let statusBadge = "";
@@ -223,9 +233,9 @@ function buildActionButton(action) {
     return `
         <button
             type="button"
-            class="action-btn ${active ? "is-toggled" : ""}"
-            data-action="${finalAction.type}"
-            data-value="${escapeHtml(finalAction.value || "")}"
+            class="action-btn ${active ? "is-toggled" : ""} ${isBtnLoading ? "is-loading" : ""}"
+            data-action="${actionStr}"
+            data-value="${valueStr}"
             ${finalAction.key ? `data-toggle-key="${escapeHtml(finalAction.key)}"` : ""}
             ${finalAction.command ? `data-command="${escapeHtml(finalAction.command)}"` : ""}
             title="${escapeHtml(finalAction.label)}"

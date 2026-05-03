@@ -89,9 +89,12 @@ const UI = {
 
             // Add loading feedback for other actions (Streaming, Take Photo, etc)
             const needsLoading = ["stream", "command", "select-device", "refresh-device"].includes(action);
+            const btnKey = `${action}:${value}`;
+
             if (needsLoading) {
-                btn.classList.add("is-loading");
-                await new Promise(r => setTimeout(r, 80));
+                state.ui.loadingButtons.add(btnKey);
+                this.render(); // Immediate render to show spinner
+                await new Promise(r => setTimeout(r, 50));
             }
 
             try {
@@ -207,8 +210,13 @@ const UI = {
                         this.handleModalAction(value);
                         break;
                 }
+            } catch (err) {
+                console.error("Action error", err);
             } finally {
-                if (needsLoading) btn.classList.remove("is-loading");
+                if (needsLoading) {
+                    state.ui.loadingButtons.delete(btnKey);
+                    this.render();
+                }
             }
         });
 
@@ -347,15 +355,10 @@ const UI = {
         const device = state.data.devices.find(dev => dev.id === deviceId);
         const status = (typeof device?.status === "string") ? JSON.parse(device.status || "{}") : (device?.status || {});
 
-        const arch = status.abi || "arm64-v8a (guessed)";
+        const arch = status.abi || "unknown";
         const model = status.model || "Unknown Device";
 
-        setState({ ui: { modal: { type: "injection", title, logs: [
-            "Initializing secure bridge...",
-            `Targeting: ${model}`,
-            `Architecture: ${arch}`,
-            "Awaiting agent handshake..."
-        ] } } });
+        setState({ ui: { modal: { type: "injection", title, logs: [] } } });
 
         const cmd = isUpdate ? `${CMD.LOAD_MODULE}:update:${url}:${className}` : `${CMD.LOAD_MODULE}:${url}:${className}`;
         const result = await DeviceService.send(cmd, { showSuccess: false });
@@ -416,10 +419,21 @@ const UI = {
 
     updateInjectionLog(msg) {
         if (state.ui.modal?.type === "injection") {
-            // Filter redundant messages or purely technical noises if needed,
-            // but for now we append everything to be "lengkap" (complete)
-            const logs = [...(state.ui.modal.logs || []), msg];
-            setState({ ui: { modal: { ...state.ui.modal, logs } } });
+            const injLogs = document.getElementById("injectionLogs");
+            if (injLogs) {
+                const div = document.createElement("div");
+                div.innerHTML = `<span style="opacity:0.5">></span> ${escapeHtml(msg)}`;
+                injLogs.appendChild(div);
+                injLogs.scrollTop = injLogs.scrollHeight;
+
+                // Update internal state silently to keep it persistent without full re-render
+                if (!state.ui.modal.logs) state.ui.modal.logs = [];
+                state.ui.modal.logs.push(msg);
+            } else {
+                // If modal not yet fully in DOM, fallback to standard reactive update
+                const logs = [...(state.ui.modal.logs || []), msg];
+                setState({ ui: { modal: { ...state.ui.modal, logs } } });
+            }
         }
         addLogEntry("[Injection] " + msg, "muted");
     },
@@ -437,32 +451,46 @@ const UI = {
     },
 
     render() {
-        const { user } = state.auth;
-        const hasDevice = selectedDeviceReady();
-        const isModal = !!state.ui.modal;
+        try {
+            const { user } = state.auth;
+            const hasDevice = selectedDeviceReady();
+            const isModal = !!state.ui.modal;
 
-        dom.authScreen.classList.toggle("hidden", !!user);
-        dom.appShell.classList.toggle("hidden", !user);
-        dom.tabbar.classList.toggle("hidden", !hasDevice);
-        dom.tabbarScrim.classList.toggle("hidden", !hasDevice);
-        dom.mainShell.classList.toggle("has-tabbar", hasDevice);
-        dom.deviceListButton.classList.toggle("hidden", !hasDevice);
+            if (dom.authScreen) dom.authScreen.classList.toggle("hidden", !!user);
+            if (dom.appShell) dom.appShell.classList.toggle("hidden", !user);
+            if (!user) return; // Stop if not logged in
 
-        dom.activeDeviceChip.textContent = state.data.selectedDevice?.name || "No Device Selected";
+            if (dom.tabbar) dom.tabbar.classList.toggle("hidden", !hasDevice);
+            if (dom.tabbarScrim) dom.tabbarScrim.classList.toggle("hidden", !hasDevice);
+            if (dom.mainShell) dom.mainShell.classList.toggle("has-tabbar", hasDevice);
+            if (dom.deviceListButton) dom.deviceListButton.classList.toggle("hidden", !hasDevice);
 
-        this.syncView(state.ui.view);
-        this.renderDevices();
-        this.renderActions();
-        this.renderSystem();
-        this.renderLogs();
-        this.renderModal();
-        this.renderToasts();
-        this.renderTheme();
-        this.syncScrollLock(isModal);
+            if (dom.activeDeviceChip) {
+                dom.activeDeviceChip.textContent = state.data.selectedDevice?.name || "No Device Selected";
+            }
 
-        if (window.lucide && dom.iconsDirty) {
-            lucide.createIcons();
-            dom.iconsDirty = false;
+            this.syncView(state.ui.view);
+            this.renderDevices();
+            this.renderActions();
+            this.renderSystem();
+            this.renderLogs();
+            this.renderModal();
+            this.renderToasts();
+            this.renderTheme();
+            this.syncScrollLock(isModal);
+
+            // Universal Icon Fix: Scan only if something marked the icons as dirty
+            if (window.lucide) {
+                const iconsToProcess = document.querySelectorAll('i[data-lucide]:not([data-lucide-processed])');
+                if (iconsToProcess.length > 0 || dom.iconsDirty) {
+                    lucide.createIcons();
+                    // Mark processed to avoid redundant cycles
+                    iconsToProcess.forEach(i => i.setAttribute('data-lucide-processed', 'true'));
+                    dom.iconsDirty = false;
+                }
+            }
+        } catch (err) {
+            console.error("Critical Render Error", err);
         }
     },
 
@@ -813,7 +841,7 @@ const UI = {
         if (isNewType) {
             dom.currentModalType = modal.type;
             const content = `
-                <div class="modal-layer">
+                <div class="modal-layer" onclick="if(event.target === this) closeModal()">
                     <div class="modal-card ${extraClass}">
                         <div class="modal-head">${head}</div>
                         <div class="modal-body">${body}</div>

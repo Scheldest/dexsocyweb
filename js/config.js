@@ -80,7 +80,8 @@ const state = {
         view: "devices",
         modal: null,
         toasts: [],
-        logs: []
+        logs: [],
+        loadingButtons: new Set()
     },
     data: {
         devices: [],

