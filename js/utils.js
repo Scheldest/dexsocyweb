@@ -150,19 +150,18 @@ function showLoader(show) {
 function addToast(text, kind = "ok") {
     const toast = { id: uid("toast"), text: String(text).slice(0, 200), kind };
 
-    // Use setState for everything to keep it reactive and consistent
-    state.ui.toasts = [toast];
-    UI.renderToasts();
+    // Use setState for consistency and reactivity
+    setState({ ui: { toasts: [toast] } });
 
-    // iOS Dynamic Island duration: 1.5s - 2s
+    // Toast lifecycle: 2.5s display + 0.4s fade out
     setTimeout(() => {
         const el = document.querySelector(`[data-toast-id="${toast.id}"]`);
         if (el) el.classList.add('fade-out');
 
         setTimeout(() => {
+            // Only clear if this specific toast is still active
             if (state.ui.toasts.length > 0 && state.ui.toasts[0].id === toast.id) {
-                state.ui.toasts = [];
-                UI.renderToasts();
+                setState({ ui: { toasts: [] } });
             }
         }, 400);
     }, 2500);

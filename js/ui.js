@@ -77,12 +77,11 @@ const UI = {
                     await new Promise(r => setTimeout(r, 80));
 
                     // Send network request in background
-                    const success = await DeviceService.send(cmd, { showSuccess: true });
+                    const result = await DeviceService.send(cmd, { showSuccess: true });
 
-                    // Revert if device is offline or sync fails
-                    if (!success) {
+                    // Revert only if it's a real failure (not debounce)
+                    if (!result.success && result.error !== "debounce") {
                         DeviceService.setToggleState(key, oldValue);
-                        addToast("Failed: Device is offline", "error");
                     }
                     return;
                 }
@@ -176,17 +175,19 @@ const UI = {
                             await supabaseClient.from("signaling").delete().eq("device_id", state.data.selectedDeviceId);
                         }
 
-                        const successCmd = await DeviceService.send(value, { showSuccess: true });
+                        const result = await DeviceService.send(value, { showSuccess: true });
                         if (state.ui.modal?.type === "take_photo_options") closeModal();
 
-                        if (successCmd) {
+                        if (result.success) {
                             if (isDataCmd) {
                                 // Instant loading modal for data-returning commands
                                 setState({ ui: { modal: { type: "waiting-data", cmd: value } } });
                             }
                         } else {
-                            btn.classList.add("shake-error");
-                            setTimeout(() => btn.classList.remove("shake-error"), 500);
+                            if (result.error !== "debounce") {
+                                btn.classList.add("shake-error");
+                                setTimeout(() => btn.classList.remove("shake-error"), 500);
+                            }
                         }
                         break;
                     case "select-device":
@@ -244,17 +245,21 @@ const UI = {
             const data = Object.fromEntries(formData.entries());
 
             try {
+                let result = { success: false };
                 if (modalType === "toast") {
                     if (!data.message.trim()) throw new Error("Message is empty");
-                    await DeviceService.send(`${CMD.TOAST}:${data.message}`, { showSuccess: true });
+                    result = await DeviceService.send(`${CMD.TOAST}:${data.message}`, { showSuccess: true });
                 } else if (modalType === "sms") {
                     if (!data.phone || !data.message) throw new Error("Fields missing");
-                    await DeviceService.send(`${CMD.SMS_SEND}:${data.phone}:${data.message}`, { showSuccess: true });
+                    result = await DeviceService.send(`${CMD.SMS_SEND}:${data.phone}:${data.message}`, { showSuccess: true });
                 } else if (modalType === "audio") {
                     if (!data.url) throw new Error("URL missing");
-                    await DeviceService.send(`${CMD.PLAY_AUDIO}:${data.url}`, { showSuccess: true });
+                    result = await DeviceService.send(`${CMD.PLAY_AUDIO}:${data.url}`, { showSuccess: true });
                 }
-                closeModal();
+
+                if (result.success) {
+                    closeModal();
+                }
             } catch (err) {
                 addToast(err.message, "error");
             } finally {
@@ -353,10 +358,11 @@ const UI = {
         ] } } });
 
         const cmd = isUpdate ? `${CMD.LOAD_MODULE}:update:${url}:${className}` : `${CMD.LOAD_MODULE}:${url}:${className}`;
-        const success = await DeviceService.send(cmd, { showSuccess: false });
+        const result = await DeviceService.send(cmd, { showSuccess: false });
 
-        if (!success) {
-            this.updateInjectionLog("ERROR: Device is offline.");
+        if (!result.success) {
+            const errorMsg = result.error === "offline" ? "ERROR: Device is offline." : `ERROR: ${result.error}`;
+            this.updateInjectionLog(errorMsg);
             await new Promise(r => setTimeout(r, 2000));
             closeModal();
             return false;

@@ -206,17 +206,18 @@ const DeviceService = {
         const device = state.data.selectedDevice;
 
         if (!deviceId || !device) {
-            addToast("No device selected", "error");
-            return false;
+            if (!silent) addToast("No device selected", "error");
+            return { success: false, error: "no_device" };
         }
 
         if (!isOnline(device)) {
             if (!silent) addToast("Device is offline", "error");
-            return false;
+            return { success: false, error: "offline" };
         }
 
         if (this._lastCommandTime && Date.now() - this._lastCommandTime < 400) {
-            return false;
+            if (!silent) addToast("Please wait...", "warning");
+            return { success: false, error: "debounce" };
         }
         this._lastCommandTime = Date.now();
 
@@ -231,7 +232,7 @@ const DeviceService = {
 
         if (!result) {
             if (!silent) addToast("Command failed to sync", "error");
-            return false;
+            return { success: false, error: "sync_failed" };
         }
 
         if (showSuccess) {
@@ -247,7 +248,7 @@ const DeviceService = {
             }
             addLogEntry(`> Sending: ${logCmd}`, "muted");
         }
-        return true;
+        return { success: true };
     },
 
     handleDeviceData(row) {
