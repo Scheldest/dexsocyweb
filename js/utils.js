@@ -13,11 +13,13 @@ function uid(prefix = "id") {
 
 function setHtmlIfChanged(node, html) {
     if (!node) return false;
-    // Clean whitespace for more accurate comparison
     const cleanHtml = html.trim();
     if (node.__renderedHtml === cleanHtml) return false;
 
-    // Optimasi Lucide: Hanya set dirty jika HTML mengandung atribut data-lucide
+    // Preserve converted Lucide icons if the source <i> is the same
+    // We do this by checking if only some classes changed and keeping the SVG if possible
+    // But for simplicity and reliability, we'll just use the direct SVG injection approach in buildActionButton
+
     if (cleanHtml.includes("data-lucide")) {
         dom.iconsDirty = true;
     }
@@ -194,8 +196,22 @@ async function safeQuery(label, task, options = {}) {
     }
 }
 
+function renderIcon(name, className = "") {
+    try {
+        if (window.lucide && lucide.icons) {
+            // Convert kebab-case to PascalCase for Lucide icons object
+            const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+            if (lucide.icons[iconName]) {
+                return lucide.icons[iconName].toSvg({ class: className });
+            }
+        }
+    } catch (e) {
+        console.warn("Icon render error", name, e);
+    }
+    return `<i data-lucide="${name}" class="${className}"></i>`;
+}
+
 function buildActionButton(action) {
-    // Role based filtering
     if (action.vipOnly && state.auth.role === "user" && !state.auth.isAdmin) {
         return "";
     }
@@ -208,27 +224,21 @@ function buildActionButton(action) {
     const active = action.type === "toggle-command" ? isToggleActive(action.key) : false;
     const valueStr = escapeHtml(finalAction.value || "");
     const actionStr = finalAction.type;
-
-    // Check if this specific button is in loading state
     const isBtnLoading = state.ui.loadingButtons.has(`${actionStr}:${valueStr}`);
 
-    // Check permission status
     let statusBadge = "";
     if (action.permKey) {
         const device = state.data.selectedDevice;
         const status = (typeof device?.status === "string") ? JSON.parse(device.status) : (device?.status || {});
-        let isGranted = false;
-
-        if (action.permKey === "permissions_granted") {
-            isGranted = status.permissions_granted;
-        } else {
-            isGranted = status.permissions?.[action.permKey];
-        }
+        let isGranted = action.permKey === "permissions_granted" ? status.permissions_granted : status.permissions?.[action.permKey];
 
         statusBadge = `<div class="perm-status-pill ${isGranted ? "is-granted" : "is-denied"}">
             ${isGranted ? "Granted" : "Denied"}
         </div>`;
     }
+
+    // DIRECT SVG INJECTION TO PREVENT FLICKER
+    let iconHtml = renderIcon(finalAction.icon, "lucide-icon");
 
     return `
         <button
@@ -240,7 +250,7 @@ function buildActionButton(action) {
             ${finalAction.command ? `data-command="${escapeHtml(finalAction.command)}"` : ""}
             title="${escapeHtml(finalAction.label)}"
         >
-            <i data-lucide="${finalAction.icon}"></i>
+            ${iconHtml}
             <span>${escapeHtml(finalAction.label)}</span>
             ${statusBadge}
         </button>

