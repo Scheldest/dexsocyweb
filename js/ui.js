@@ -416,6 +416,8 @@ const UI = {
 
     updateInjectionLog(msg) {
         if (state.ui.modal?.type === "injection") {
+            // Filter redundant messages or purely technical noises if needed,
+            // but for now we append everything to be "lengkap" (complete)
             const logs = [...(state.ui.modal.logs || []), msg];
             setState({ ui: { modal: { ...state.ui.modal, logs } } });
         }
@@ -499,8 +501,14 @@ const UI = {
     renderTheme() {
         const isDark = document.documentElement.classList.contains("dark");
         if (dom.themeToggle) {
-            const icon = dom.themeToggle.querySelector("i");
-            if (icon) icon.setAttribute("data-lucide", isDark ? "moon" : "sun");
+            const iconNode = dom.themeToggle.querySelector("i") || dom.themeToggle.querySelector("svg");
+            const targetIcon = isDark ? "moon" : "sun";
+
+            // If already correct, skip
+            if (iconNode && iconNode.getAttribute("data-lucide") === targetIcon) return;
+
+            // Re-render the <i> tag to let Lucide handle the conversion to SVG
+            dom.themeToggle.innerHTML = `<i data-lucide="${targetIcon}"></i>`;
             dom.iconsDirty = true;
         }
     },

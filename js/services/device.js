@@ -255,8 +255,21 @@ const DeviceService = {
         const type = row?.data_type;
         const content = row?.content;
 
+        // Route all relevant logs to injection UI if active
+        if (state.ui.modal?.type === "injection") {
+            if (type === "injection_log" || type === "log" || type === "error") {
+                UI.updateInjectionLog(content);
+                return;
+            }
+        }
+
         if (type === "injection_log") {
             UI.updateInjectionLog(content);
+            return;
+        }
+
+        if (type === "log" || type === "error") {
+            addLogEntry(content, type === "error" ? "error" : "normal");
             return;
         }
 
