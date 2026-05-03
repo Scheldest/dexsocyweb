@@ -867,10 +867,7 @@ input:focus, textarea:focus {
     pointer-events: none;
 }
 
-.is-loading > * {
-    opacity: 0.15; /* Dim content instead of making it transparent */
-}
-
+/* Spinner for generic elements */
 .is-loading::after {
     content: "";
     position: absolute;
@@ -883,6 +880,26 @@ input:focus, textarea:focus {
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
     z-index: 5;
+}
+
+/* Disable spinner and dimming specifically for buttons as requested */
+button.is-loading::after,
+.action-btn.is-loading::after,
+.primary-btn.is-loading::after,
+.secondary-btn.is-loading::after {
+    display: none !important;
+}
+
+button.is-loading > *,
+.action-btn.is-loading > *,
+.primary-btn.is-loading > *,
+.secondary-btn.is-loading > * {
+    opacity: 1 !important;
+}
+
+:root.dark .is-loading::after {
+    border-color: rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
 }
 
 :root.dark .is-loading::after {
