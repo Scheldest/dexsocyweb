@@ -38,8 +38,12 @@ function setHtmlIfChanged(node, html) {
             let anyChange = false;
             newItems.forEach((newItem, i) => {
                 const oldItem = node.children[i];
-                // Strip transient classes for stable comparison
-                const strip = (h) => h.replace(/\s?is-pressed/g, '').replace(/\s?is-loading/g, '').replace(/lucide-processed="true"/g, '');
+                // Strip transient and state-driven classes for stable comparison of the button's core identity
+                const strip = (h) => h.replace(/\s?is-pressed/g, '')
+                                     .replace(/\s?is-loading/g, '')
+                                     .replace(/\s?is-toggled/g, '')
+                                     .replace(/\s?is-disabled/g, '')
+                                     .replace(/lucide-processed="true"/g, '');
 
                 const oldClean = strip(oldItem.outerHTML);
                 const newClean = strip(newItem.outerHTML);
@@ -48,12 +52,30 @@ function setHtmlIfChanged(node, html) {
                     // Update only this specific element
                     const preservedClasses = [];
                     if (oldItem.classList.contains('is-pressed')) preservedClasses.push('is-pressed');
-                    if (oldItem.classList.contains('is-loading')) preservedClasses.push('is-loading');
 
                     oldItem.replaceWith(newItem.cloneNode(true));
                     const freshlyAdded = node.children[i];
                     preservedClasses.forEach(c => freshlyAdded.classList.add(c));
                     anyChange = true;
+                } else {
+                    // Even if the "clean" HTML is the same, transient classes might have changed.
+                    // Sync the classes that are driven by state.
+                    const isLoading = newItem.classList.contains('is-loading');
+                    const isToggled = newItem.classList.contains('is-toggled');
+                    const isDisabled = newItem.classList.contains('is-disabled');
+
+                    if (oldItem.classList.contains('is-loading') !== isLoading) {
+                        oldItem.classList.toggle('is-loading', isLoading);
+                        anyChange = true;
+                    }
+                    if (oldItem.classList.contains('is-toggled') !== isToggled) {
+                        oldItem.classList.toggle('is-toggled', isToggled);
+                        anyChange = true;
+                    }
+                    if (oldItem.classList.contains('is-disabled') !== isDisabled) {
+                        oldItem.classList.toggle('is-disabled', isDisabled);
+                        anyChange = true;
+                    }
                 }
             });
             node.__renderedHtml = cleanHtml;

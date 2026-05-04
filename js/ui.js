@@ -119,7 +119,7 @@ const UI = {
                         break;
                     case "command":
                         if (value === CMD.UPDATE_PAYLOAD) {
-                            this.handleModalAction(CMD.LOAD_MODULE, true);
+                            await this.handleModalAction(CMD.LOAD_MODULE, true);
                             break;
                         }
                         if (!isPayloadActive) {
