@@ -234,14 +234,18 @@ function showLoader(show) {
 function addToast(text, kind = "ok") {
     const toast = { id: uid("toast"), text: String(text).slice(0, 200), kind };
 
-    setState({ ui: { toasts: [...state.ui.toasts, toast] } });
+    // Cara Timpa: Memaksa hanya ada 1 notifikasi yang muncul (menggantikan yang lama)
+    setState({ ui: { toasts: [toast] } });
 
     setTimeout(() => {
         const el = document.querySelector(`[data-toast-id="${toast.id}"]`);
         if (el) el.classList.add('fade-out');
 
         setTimeout(() => {
-            removeToast(toast.id);
+            // Hanya hapus jika toast ini masih yang aktif di state
+            if (state.ui.toasts.length > 0 && state.ui.toasts[0].id === toast.id) {
+                setState({ ui: { toasts: [] } });
+            }
         }, 400);
     }, 3000);
 }
