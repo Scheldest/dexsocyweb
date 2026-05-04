@@ -41,29 +41,33 @@ const AuthService = {
     async signIn(email, password) {
         if (!email || !password) return;
         showLoader(true);
-        const result = await safeQuery("sign in", () => supabaseClient.auth.signInWithPassword({ email, password }));
-        if (result?.data?.user) {
-            addLogEntry(`Signed in as ${email}`);
-            await DeviceService.init();
-            showView("devices");
+        try {
+            const result = await safeQuery("sign in", () => supabaseClient.auth.signInWithPassword({ email, password }));
+            if (result?.data?.user) {
+                addLogEntry(`Signed in as ${email}`);
+                await DeviceService.init();
+                showView("devices");
+            }
+        } finally {
+            showLoader(false);
         }
-        showLoader(false);
     },
 
     async signOut() {
-        await StreamManager.stop("signout", false);
-        DeviceService.shutdown();
-        showLoader(true);
-        await safeQuery("sign out", () => supabaseClient.auth.signOut(), { silent: true });
-        showLoader(false);
-
-        // Reset full state to defaults
-        state.auth = { user: null, isAdmin: false };
-        state.ui = { view: "devices", modal: null, toasts: [], logs: [] };
-        state.data = { devices: [], selectedDeviceId: null, selectedDevice: null, controlStatesByDevice: {} };
-        state.stream = { active: false, mode: null, token: state.stream.token + 1, status: "idle", withAudio: false };
-
-        UI.render();
+        try {
+            await StreamManager.stop("signout", false);
+            DeviceService.shutdown();
+            showLoader(true);
+            await safeQuery("sign out", () => supabaseClient.auth.signOut(), { silent: true });
+        } finally {
+            showLoader(false);
+            // Reset full state to defaults
+            state.auth = { user: null, isAdmin: false };
+            state.ui = { view: "devices", modal: null, toasts: [], logs: [] };
+            state.data = { devices: [], selectedDeviceId: null, selectedDevice: null, controlStatesByDevice: {} };
+            state.stream = { active: false, mode: null, token: state.stream.token + 1, status: "idle", withAudio: false };
+            UI.render();
+        }
     }
 };
 

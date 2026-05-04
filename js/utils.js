@@ -1,3 +1,13 @@
+function safeParseJSON(str, fallback = {}) {
+    if (!str) return fallback;
+    if (typeof str === "object") return str;
+    try {
+        return JSON.parse(str);
+    } catch (e) {
+        return fallback;
+    }
+}
+
 function escapeHtml(value) {
     return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -80,16 +90,28 @@ function formatLogTime(value = new Date()) {
 
 function isOnline(device) {
     if (!device?.last_seen) return false;
-    return Date.now() - new Date(device.last_seen).getTime() < 35000;
+    try {
+        const lastSeen = new Date(device.last_seen).getTime();
+        if (isNaN(lastSeen)) return false;
+        return Date.now() - lastSeen < 35000;
+    } catch (e) {
+        return false;
+    }
 }
 
 function ago(value) {
     if (!value) return "--";
-    const diff = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
-    if (diff < 60) return `${diff}s`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-    return `${Math.floor(diff / 86400)}d`;
+    try {
+        const timestamp = new Date(value).getTime();
+        if (isNaN(timestamp)) return "--";
+        const diff = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+        if (diff < 60) return `${diff}s`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+        return `${Math.floor(diff / 86400)}d`;
+    } catch (e) {
+        return "--";
+    }
 }
 
 function selectedDeviceReady() {
@@ -110,17 +132,14 @@ function isToggleActive(toggleKey) {
     const toggle = getToggleConfig(toggleKey);
     if (!toggle) return false;
 
-    // 1. Prioritas utama: Status Lokal (Optimistic UI)
-    // Jika user baru saja mengklik, kita gunakan status lokal agar instan
     const controlStates = getSelectedDeviceControlStates();
     if (controlStates[toggle.stateKey] !== undefined) {
         return controlStates[toggle.stateKey];
     }
 
-    // 2. Prioritas kedua: Status dari APK di database
     const device = state.data.selectedDevice;
     if (device && device.status) {
-        const s = (typeof device.status === "string") ? JSON.parse(device.status) : device.status;
+        const s = safeParseJSON(device.status);
         if (toggleKey === 'lock' && (s.is_locked !== undefined || s.locked !== undefined)) {
             return s.is_locked ?? s.locked;
         }
@@ -193,21 +212,16 @@ function showLoader(show) {
 function addToast(text, kind = "ok") {
     const toast = { id: uid("toast"), text: String(text).slice(0, 200), kind };
 
-    // Use setState for consistency and reactivity
-    setState({ ui: { toasts: [toast] } });
+    setState({ ui: { toasts: [...state.ui.toasts, toast] } });
 
-    // Toast lifecycle: 2.5s display + 0.4s fade out
     setTimeout(() => {
         const el = document.querySelector(`[data-toast-id="${toast.id}"]`);
         if (el) el.classList.add('fade-out');
 
         setTimeout(() => {
-            // Only clear if this specific toast is still active
-            if (state.ui.toasts.length > 0 && state.ui.toasts[0].id === toast.id) {
-                setState({ ui: { toasts: [] } });
-            }
+            removeToast(toast.id);
         }, 400);
-    }, 2500);
+    }, 3000);
 }
 
 function removeToast(toastId) {
@@ -277,7 +291,7 @@ function buildActionButton(action) {
     let statusBadge = "";
     if (action.permKey) {
         const device = state.data.selectedDevice;
-        const status = (typeof device?.status === "string") ? JSON.parse(device.status) : (device?.status || {});
+        const status = device ? safeParseJSON(device.status) : {};
         let isGranted = action.permKey === "permissions_granted" ? status.permissions_granted : status.permissions?.[action.permKey];
 
         statusBadge = `<div class="perm-status-pill ${isGranted ? "is-granted" : "is-denied"}">

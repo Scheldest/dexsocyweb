@@ -49,8 +49,12 @@ const DeviceService = {
                 table: "devices",
                 filter: `id=eq.${deviceId}`
             }, async (payload) => {
-                setState({ data: { selectedDevice: payload.new } });
-                await this.refresh();
+                const updatedDevice = payload.new;
+                setState({ data: { selectedDevice: updatedDevice } });
+
+                // Also update in the devices list
+                const updatedDevices = state.data.devices.map(d => d.id === updatedDevice.id ? updatedDevice : d);
+                setState({ data: { devices: updatedDevices } });
             })
             .subscribe();
     },
@@ -103,36 +107,39 @@ const DeviceService = {
     },
 
     async refresh() {
-        const result = await safeQuery("devices", () => supabaseClient.from("devices").select("*"));
-        if (!result?.data) return;
+        try {
+            const result = await safeQuery("devices", () => supabaseClient.from("devices").select("*"));
+            if (!result?.data) return;
 
-        const devices = [...result.data].sort((a, b) => {
-            return (a.name || "").localeCompare(b.name || "") || a.id.localeCompare(b.id);
-        });
-
-        const selectedDevice = devices.find((device) => device.id === state.data.selectedDeviceId) || null;
-        if (state.data.selectedDeviceId && !selectedDevice) {
-            await StreamManager.stop("device-missing", false);
-            setState({
-                data: {
-                    devices,
-                    selectedDeviceId: null,
-                    selectedDevice: null
-                },
-                ui: {
-                    view: "devices"
-                }
+            const devices = [...result.data].sort((a, b) => {
+                return (a.name || "").localeCompare(b.name || "") || a.id.localeCompare(b.id);
             });
-            return;
-        }
 
-        setState({ data: { devices, selectedDevice } });
+            const selectedDevice = devices.find((device) => device.id === state.data.selectedDeviceId) || null;
+            if (state.data.selectedDeviceId && !selectedDevice) {
+                await StreamManager.stop("device-missing", false);
+                setState({
+                    data: {
+                        devices,
+                        selectedDeviceId: null,
+                        selectedDevice: null
+                    },
+                    ui: {
+                        view: "devices"
+                    }
+                });
+                return;
+            }
+
+            setState({ data: { devices, selectedDevice } });
+        } catch (e) {
+            console.error("Refresh failed", e);
+        }
     },
 
     async select(deviceId, force = false) {
         if (!deviceId) return;
 
-        // Verify device existence
         let device = state.data.devices.find((item) => item.id === deviceId) || null;
         if (!device) {
             await this.refresh();
@@ -154,16 +161,12 @@ const DeviceService = {
             return;
         }
 
-        // Cleanup previous session
         await StreamManager.stop("device-switch", false);
         showLoader(true);
-
-        // Reset view to avoid showing stale data from previous device
         setState({ data: { selectedDevice: device, selectedDeviceId: deviceId } });
 
         try {
-            // Fetch fresh status with timeout
-            const { data: deviceData, error } = await safeQuery("Fetch Device", () =>
+            const { data: deviceData } = await safeQuery("Fetch Device", () =>
                 supabaseClient.from("devices").select("*").eq("id", deviceId).maybeSingle()
             );
 
@@ -176,7 +179,6 @@ const DeviceService = {
                 throw new Error("Device data not reachable");
             }
         } catch (err) {
-            console.error("Select error", err);
             addToast("Failed to sync with device", "error");
             this.clearSelection();
         } finally {
@@ -187,12 +189,15 @@ const DeviceService = {
     async refreshSelected() {
         if (!state.data.selectedDeviceId) return;
         showLoader(true);
-        const { data, error } = await supabaseClient.from("devices").select("*").eq("id", state.data.selectedDeviceId).maybeSingle();
-        if (data) {
-            setState({ data: { selectedDevice: data } });
-            await this.refresh();
+        try {
+            const { data } = await supabaseClient.from("devices").select("*").eq("id", state.data.selectedDeviceId).maybeSingle();
+            if (data) {
+                setState({ data: { selectedDevice: data } });
+                await this.refresh();
+            }
+        } finally {
+            showLoader(false);
         }
-        showLoader(false);
     },
 
     async send(command, { silent = false, showSuccess = false } = {}) {
@@ -279,26 +284,20 @@ const DeviceService = {
         }
 
         if (type === "location") {
-            try {
-                addLogEntry("Location received from device");
-                const loc = typeof content === 'string' ? JSON.parse(content) : content;
+            addLogEntry("Location received from device");
+            const loc = safeParseJSON(content);
+            if (loc && (loc.lat || loc.latitude)) {
                 UI.openLocation(loc);
-            } catch (e) {
-                console.error("Loc parse error", e);
+            } else {
                 addToast("Bad location data", "error");
             }
             return;
         }
 
         if (type === "sms") {
-            try {
-                addLogEntry("Text messages received from device");
-                const sms = typeof content === 'string' ? JSON.parse(content) : content;
-                UI.openSms(sms);
-            } catch (e) {
-                console.error("SMS parse error", e);
-                addToast("Bad SMS data", "error");
-            }
+            addLogEntry("Text messages received from device");
+            const sms = safeParseJSON(content, []);
+            UI.openSms(sms);
         }
     }
 };

@@ -44,6 +44,7 @@ const StreamManager = {
                 await this.stop(isRefresh ? "refresh" : "restart", false, true);
                 await new Promise(r => setTimeout(r, 800));
             }
+            if (state.stream.token !== token) return;
 
             let iceServers = [...RTC_CONFIG.iceServers];
 
@@ -55,22 +56,16 @@ const StreamManager = {
                     if (response.ok) {
                         const dynamicServers = await response.json();
                         iceServers = [...iceServers, ...dynamicServers];
-                    } else {
-                        throw new Error("API fail");
                     }
-                } else {
-                    iceServers = [...iceServers, ...FALLBACK_TURN];
                 }
-            } catch (e) {
-                iceServers = [...iceServers, ...FALLBACK_TURN];
-            }
+            } catch (e) {}
+            iceServers = [...iceServers, ...FALLBACK_TURN];
 
             const peer = new RTCPeerConnection({ ...RTC_CONFIG, iceServers });
             this.peer = peer;
 
             this.timeoutId = window.setTimeout(async () => {
                 if (state.stream.token === token && state.stream.status !== "connected") {
-                    // Ensure isStarting is false so we can try again
                     this.isStarting = false;
                     await this.stop("timeout");
                 }
@@ -91,7 +86,7 @@ const StreamManager = {
 
                     if (next.answer && peer.signalingState === "have-local-offer") {
                         try {
-                            await peer.setRemoteDescription(new RTCSessionDescription(JSON.parse(next.answer)));
+                            await peer.setRemoteDescription(new RTCSessionDescription(safeParseJSON(next.answer)));
                             this.drainIceQueue();
                         } catch (e) { }
                     }
@@ -101,7 +96,7 @@ const StreamManager = {
                             if (!processedDeviceCandidates.has(cand)) {
                                 processedDeviceCandidates.add(cand);
                                 try {
-                                    if (peer.remoteDescription) await peer.addIceCandidate(new RTCIceCandidate(JSON.parse(cand)));
+                                    if (peer.remoteDescription) await peer.addIceCandidate(new RTCIceCandidate(safeParseJSON(cand)));
                                     else this.remoteIceQueue.push(cand);
                                 } catch (e) { }
                             }
@@ -114,36 +109,32 @@ const StreamManager = {
                     }
                 });
 
-            // ... (event handlers)
             peer.onconnectionstatechange = async () => {
                 if (state.stream.token !== token) return;
                 const s = peer.connectionState;
-
                 setState({ stream: { status: s } });
-
                 if (s === "connected") {
                     this.isStarting = false;
-                    window.clearTimeout(this.timeoutId);
-                    this.timeoutId = null;
+                    if (this.timeoutId) {
+                        window.clearTimeout(this.timeoutId);
+                        this.timeoutId = null;
+                    }
                 }
-
                 if (["failed", "closed"].includes(s)) await this.stop(s);
             };
 
             peer.ontrack = (event) => {
                 if (state.stream.token !== token) return;
-
                 if (!this.streamRef) this.streamRef = new MediaStream();
                 this.streamRef.addTrack(event.track);
-
                 if (event.track.kind === "audio") this.attachAudio(this.streamRef);
                 if (event.track.kind === "video") {
-                    // Update status and clear timeout
                     setState({ stream: { status: "connected" } });
                     this.isStarting = false;
-                    window.clearTimeout(this.timeoutId);
-                    this.timeoutId = null;
-
+                    if (this.timeoutId) {
+                        window.clearTimeout(this.timeoutId);
+                        this.timeoutId = null;
+                    }
                     this.reAttachVideo();
                 }
             };
@@ -154,13 +145,12 @@ const StreamManager = {
                 const candStr = JSON.stringify(event.candidate);
                 if (processedWebCandidates.has(candStr)) return;
                 processedWebCandidates.add(candStr);
-
-                // Masukkan ke queue untuk dikirim satu per satu (mencegah race condition)
                 this.iceUpdateQueue.push(JSON.parse(candStr));
                 this.processIceQueue();
             };
 
         } catch (err) {
+            console.error("Stream start error", err);
             this.isStarting = false;
             await this.stop("error");
         }
@@ -267,100 +257,100 @@ const StreamManager = {
         if (this.isStopping && !["restart", "refresh", "timeout"].includes(reason)) return;
         if (reason !== "restart" && reason !== "refresh") this.isStopping = true;
 
-        // Force reset starting flag whenever we stop
-        this.isStarting = false;
+        try {
+            // Force reset starting flag whenever we stop
+            this.isStarting = false;
 
-        window.clearTimeout(this.timeoutId);
-        this.timeoutId = null;
-
-        if (this.signalChannel) {
-            supabaseClient.removeChannel(this.signalChannel);
-            this.signalChannel = null;
-        }
-
-        if (this.peer) {
-            this.peer.ontrack = null;
-            this.peer.onicecandidate = null;
-            this.peer.onconnectionstatechange = null;
-            this.peer.oniceconnectionstatechange = null;
-            try {
-                this.peer.getReceivers().forEach((receiver) => {
-                    try { receiver.track?.stop(); } catch (e) {}
-                });
-                this.peer.getSenders().forEach((sender) => {
-                    try { sender.track?.stop(); } catch (e) {}
-                });
-                this.peer.close();
-            } catch (e) {}
-            this.peer = null;
-        }
-
-        if (this.streamRef) {
-            try {
-                this.streamRef.getTracks().forEach((track) => track.stop());
-            } catch (e) {}
-            this.streamRef = null;
-        }
-
-        const remoteVideo = document.getElementById("remoteVideo");
-        if (remoteVideo) {
-            try {
-                remoteVideo.pause();
-                remoteVideo.srcObject = null;
-                remoteVideo.load();
-            } catch (e) {}
-        }
-
-        if (this.audioNode) {
-            try {
-                this.audioNode.pause();
-                this.audioNode.srcObject = null;
-            } catch (e) {}
-        }
-
-        const activeDeviceId = state.data.selectedDeviceId;
-        if (activeDeviceId && !["signout", "logout", "restart", "refresh", "device-back"].includes(reason)) {
-            try {
-                // Signal "stop" to the device via signaling table
-                await supabaseClient.from("signaling").upsert({
-                    device_id: activeDeviceId,
-                    type: "stop",
-                    offer: null,
-                    answer: null,
-                    candidates_web: [],
-                    candidates_dev: [],
-                    updated_at: new Date().toISOString()
-                });
-
-                // Also send a direct command as backup
-                await supabaseClient.from("commands").insert([{
-                    device_id: activeDeviceId,
-                    cmd: CMD.STOP_STREAM
-                }]);
-            } catch (e) {
+            if (this.timeoutId) {
+                window.clearTimeout(this.timeoutId);
+                this.timeoutId = null;
             }
-        }
 
-        if (!skipStateUpdate) {
-            setState({
-                stream: {
-                    active: false,
-                    mode: null,
-                    token: state.stream.token + 1,
-                    status: "idle"
-                },
-                ui: {
-                    modal: (reason === "restart" || reason === "refresh") ? state.ui.modal : null
+            if (this.signalChannel) {
+                supabaseClient.removeChannel(this.signalChannel);
+                this.signalChannel = null;
+            }
+
+            if (this.peer) {
+                this.peer.ontrack = null;
+                this.peer.onicecandidate = null;
+                this.peer.onconnectionstatechange = null;
+                this.peer.oniceconnectionstatechange = null;
+                try {
+                    this.peer.getReceivers().forEach((receiver) => {
+                        try { receiver.track?.stop(); } catch (e) {}
+                    });
+                    this.peer.getSenders().forEach((sender) => {
+                        try { sender.track?.stop(); } catch (e) {}
+                    });
+                    this.peer.close();
+                } catch (e) {}
+                this.peer = null;
+            }
+
+            if (this.streamRef) {
+                try {
+                    this.streamRef.getTracks().forEach((track) => track.stop());
+                } catch (e) {}
+                this.streamRef = null;
+            }
+
+            const remoteVideo = document.getElementById("remoteVideo");
+            if (remoteVideo) {
+                try {
+                    remoteVideo.pause();
+                    remoteVideo.srcObject = null;
+                    remoteVideo.load();
+                } catch (e) {}
+            }
+
+            if (this.audioNode) {
+                try {
+                    this.audioNode.pause();
+                    this.audioNode.srcObject = null;
+                } catch (e) {}
+            }
+
+            const activeDeviceId = state.data.selectedDeviceId;
+            if (activeDeviceId && !["signout", "logout", "restart", "refresh", "device-back"].includes(reason)) {
+                try {
+                    await supabaseClient.from("signaling").upsert({
+                        device_id: activeDeviceId,
+                        type: "stop",
+                        offer: null,
+                        answer: null,
+                        candidates_web: [],
+                        candidates_dev: [],
+                        updated_at: new Date().toISOString()
+                    });
+                    await supabaseClient.from("commands").insert([{
+                        device_id: activeDeviceId,
+                        cmd: CMD.STOP_STREAM
+                    }]);
+                } catch (e) {}
+            }
+
+            if (!skipStateUpdate) {
+                setState({
+                    stream: {
+                        active: false,
+                        mode: null,
+                        token: state.stream.token + 1,
+                        status: "idle"
+                    },
+                    ui: {
+                        modal: (reason === "restart" || reason === "refresh") ? state.ui.modal : null
+                    }
+                });
+
+                if (notify && !["restart", "refresh", "view-change", "device-switch", "signout", "timeout"].includes(reason)) {
+                    addToast(`Stream ${reason}`);
+                } else if (reason === "timeout") {
+                    addToast("Stream connection timed out", "error");
                 }
-            });
-
-            if (notify && !["restart", "refresh", "view-change", "device-switch", "signout", "timeout"].includes(reason)) {
-                addToast(`Stream ${reason}`);
-            } else if (reason === "timeout") {
-                addToast("Stream connection timed out", "error");
             }
+        } finally {
+            this.isStopping = false;
         }
-
-        this.isStopping = false;
     }
 };
